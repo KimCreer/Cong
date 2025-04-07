@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "199845380355",
+    "project_id": "cong-app-672c9",
+    "storage_bucket": "cong-app-672c9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:199845380355:android:12f92160c67fec7b9fe936",
+        "android_client_info": {
+          "package_name": "com.allencrer.congapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC9rThST_RNEYPPWz3BO2TWlvIwO5dPP0M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

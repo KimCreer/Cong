@@ -1,0 +1,714 @@
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import {
+    View,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    StyleSheet,
+    SafeAreaView,
+    FlatList,
+    KeyboardAvoidingView,
+    Platform,
+    Animated,
+    StatusBar
+} from 'react-native';
+import { Ionicons } from "@expo/vector-icons";
+import LinearGradient from 'react-native-linear-gradient';
+
+// Advanced NLP-inspired help response system
+const INTENT_RESPONSES = {
+    greeting: [
+        "Mabuhay! 👋 I'm your Muntinlupa AI Assistant. How can I help you today?",
+        "Hello! Welcome to Muntinlupa's digital service. What can I assist you with?",
+        "Kumusta! I'm here to make your civic interactions smooth and simple."
+    ],
+    appointment: {
+        primary: "To book an appointment, I can help you with the following options:",
+        steps: [
+            "Choose consultation type",
+            "Select preferred date and time",
+            "Provide a brief description of your purpose"
+        ],
+        additionalInfo: "Would you like me to guide you through the booking process?"
+    },
+    laws: {
+        intro: "Our legal resources cover:",
+        categories: [
+            "Recent municipal legislation",
+            "Pending city bills",
+            "Legal guidelines and resources"
+        ],
+        disclaimer: "For the most up-to-date legal information, I recommend verifying with our legal department."
+    },
+    services: {
+        categories: [
+            "Community Development Projects",
+            "Local Government Services",
+            "Citizen Support Programs"
+        ],
+        prompt: "Which service are you most interested in exploring?"
+    },
+    contact: {
+        primary: "Connect with Muntinlupa City Government:",
+        details: {
+            phone: "(02) 8123-4567",
+            email: "office@fresnedi.gov.ph",
+            hours: "Monday to Friday, 8:00 AM - 5:00 PM"
+        },
+        locations: [
+            "Main Office: 3rd Floor, Alabang Public Market",
+            "123 Muntinlupa Boulevard"
+        ]
+    }
+};
+
+// Enhanced AI-driven response generator
+const generateResponse = (userInput) => {
+    const input = userInput.toLowerCase();
+    
+    // Multilayered intent matching
+    const intents = {
+        greeting: ['hi', 'hello', 'hey', 'kumusta', 'magandang'],
+        appointment: ['appointment', 'book', 'schedule', 'meeting'],
+        laws: ['law', 'legal', 'batas', 'bill', 'ordinance'],
+        services: ['service', 'project', 'program', 'help'],
+        contact: ['contact', 'number', 'email', 'location', 'address']
+    };
+
+    // Advanced intent detection
+    const detectIntent = () => {
+        for (const [intent, keywords] of Object.entries(intents)) {
+            if (keywords.some(keyword => input.includes(keyword))) {
+                return intent;
+            }
+        }
+        return 'default';
+    };
+
+    const intent = detectIntent();
+
+    switch (intent) {
+        case 'greeting':
+            return INTENT_RESPONSES.greeting[Math.floor(Math.random() * INTENT_RESPONSES.greeting.length)];
+        
+        case 'appointment':
+            return [
+                INTENT_RESPONSES.appointment.primary,
+                ...INTENT_RESPONSES.appointment.steps.map(step => `• ${step}`),
+                INTENT_RESPONSES.appointment.additionalInfo
+            ].join('\n');
+        
+        case 'laws':
+            return [
+                INTENT_RESPONSES.laws.intro,
+                ...INTENT_RESPONSES.laws.categories.map(cat => `• ${cat}`),
+                INTENT_RESPONSES.laws.disclaimer
+            ].join('\n');
+        
+        case 'services':
+            return [
+                "Our current service categories include:",
+                ...INTENT_RESPONSES.services.categories.map(service => `• ${service}`),
+                INTENT_RESPONSES.services.prompt
+            ].join('\n');
+        
+        case 'contact':
+            return [
+                INTENT_RESPONSES.contact.primary,
+                `📞 Phone: ${INTENT_RESPONSES.contact.details.phone}`,
+                `📧 Email: ${INTENT_RESPONSES.contact.details.email}`,
+                `🕒 Hours: ${INTENT_RESPONSES.contact.details.hours}`,
+                "Locations:",
+                ...INTENT_RESPONSES.contact.locations.map(loc => `• ${loc}`)
+            ].join('\n');
+        
+        default:
+            return "I'm processing your request. Could you please rephrase or be more specific? I'm here to help with appointments, laws, services, and contact information.";
+    }
+};
+
+const HelpScreen = () => {
+    const [messages, setMessages] = useState([
+        { id: '0', text: INTENT_RESPONSES.greeting[0], sender: 'bot' }
+    ]);
+    const [inputText, setInputText] = useState('');
+    const [fadeAnim] = useState(new Animated.Value(0));
+    const flatListRef = useRef(null);
+
+    const addMessage = useCallback((text, sender) => {
+        const newMessage = {
+            id: `${Date.now()}`,
+            text,
+            sender
+        };
+        setMessages(prevMessages => [...prevMessages, newMessage]);
+    }, []);
+
+    const handleSendMessage = useCallback(() => {
+        if (inputText.trim() === '') return;
+
+        // Add user message
+        addMessage(inputText, 'user');
+
+        // Generate AI response
+        const botResponse = generateResponse(inputText);
+        setTimeout(() => {
+            addMessage(botResponse, 'bot');
+        }, 500);
+
+        // Clear input
+        setInputText('');
+
+        // Scroll to bottom
+        if (flatListRef.current) {
+            flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+        }
+    }, [inputText, addMessage]);
+
+    useEffect(() => {
+        Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: true
+        }).start();
+    }, [messages]);
+
+    const renderMessage = ({ item }) => (
+        <Animated.View 
+            style={[
+                styles.messageContainer, 
+                item.sender === 'user' ? styles.userMessage : styles.botMessage,
+                { opacity: fadeAnim }
+            ]}
+        >
+            <Text style={item.sender === 'user' ? styles.userMessageText : styles.botMessageText}>
+                {item.text}
+            </Text>
+        </Animated.View>
+    );
+
+    return (
+        <SafeAreaView style={styles.container}>
+            <StatusBar barStyle="light-content" />
+            <LinearGradient 
+                colors={['#012169', '#0353A4']} 
+                style={styles.header}
+            >
+                <View style={styles.headerContent}>
+                    <Ionicons name="chatbot" size={28} color="#FFFFFF" />
+                    <Text style={styles.headerTitle}>Muntinlupa AI Assistant</Text>
+                </View>
+            </LinearGradient>
+            
+            <FlatList
+                ref={flatListRef}
+                data={messages}
+                renderItem={renderMessage}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={styles.messageList}
+                inverted
+                showsVerticalScrollIndicator={false}
+            />
+
+            <KeyboardAvoidingView 
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                style={styles.inputContainer}
+            >
+                <View style={styles.inputWrapper}>
+                    <TextInput
+                        style={styles.input}
+                        value={inputText}
+                        onChangeText={setInputText}
+                        placeholder="Ask me anything about Muntinlupa services"
+                        placeholderTextColor="#888"
+                        multiline
+                        maxHeight={100}
+                    />
+                    <TouchableOpacity 
+                        style={styles.sendButton} 
+                        onPress={handleSendMessage}
+                    >
+                        <Ionicons name="send" size={24} color="#FFFFFF" />
+                    </TouchableOpacity>
+                </View>
+            </KeyboardAvoidingView>
+        </SafeAreaView>
+    );
+};
+
+
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#F5F5F5',
+    },
+    header: {
+        paddingVertical: 15,
+        paddingHorizontal: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 5,
+    },
+    headerContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingTop: 10,
+    },
+    headerTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        marginLeft: 10,
+        color: '#FFFFFF',
+    },
+    messageList: {
+        paddingHorizontal: 15,
+        paddingBottom: 15,
+        flexGrow: 1,
+        justifyContent: 'flex-end',
+    },
+    messageContainer: {
+        maxWidth: '80%',
+        marginVertical: 5,
+        padding: 12,
+        borderRadius: 15,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2,
+    },
+    userMessage: {
+        alignSelf: 'flex-end',
+        backgroundColor: '#0353A4',
+    },
+    botMessage: {
+        alignSelf: 'flex-start',
+        backgroundColor: '#E0E0E0',
+    },
+    userMessageText: {
+        color: 'white',
+        fontSize: 16,
+    },
+    botMessageText: {
+        color: '#333',
+        fontSize: 16,
+    },
+    inputContainer: {
+        backgroundColor: '#FFFFFF',
+        borderTopWidth: 1,
+        borderTopColor: '#E0E0E0',
+    },
+    inputWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 15,
+        paddingVertical: 10,
+    },
+    input: {
+        flex: 1,
+        backgroundColor: '#F5F5F5',
+        borderRadius: 25,
+        paddingHorizontal: 15,
+        paddingVertical: 10,
+        marginRight: 10,
+        maxHeight: 100,
+        fontSize: 16,
+    },
+    sendButton: {
+        backgroundColor: '#0353A4',
+        borderRadius: 50,
+        width: 50,
+        height: 50,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 3,
+    },
+});
+
+export default HelpScreen;
+
+
+
+
+
+
+
+]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+
+import React, { useState, useEffect } from "react";
+import { View, Text, Alert, StyleSheet, Dimensions, Image } from "react-native";
+import { TextInput, Button, ActivityIndicator } from "react-native-paper";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getAuth, signInWithPhoneNumber } from "@react-native-firebase/auth";
+import { getFirestore, collection, query, where, getDocs, doc, getDoc, setDoc } from "@react-native-firebase/firestore";
+import { useNavigation } from "@react-navigation/native";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
+
+const { width, height } = Dimensions.get("window");
+
+export default function Login() {
+    const [phoneNumber, setPhoneNumber] = useState("");
+    const [code, setCode] = useState("");
+    const [pincode, setPincode] = useState("");
+    const [confirm, setConfirm] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [showPincode, setShowPincode] = useState(false);
+    const [isNewUser, setIsNewUser] = useState(false);
+    const [confirmOTP, setConfirmOTP] = useState(false);
+    const navigation = useNavigation();
+    
+    // Initialize Firebase services
+    const auth = getAuth();
+    const firestore = getFirestore();
+
+    useEffect(() => {
+        checkIfFirstLaunch();
+    }, []);
+
+    const checkIfFirstLaunch = async () => {
+        const hasSeenIntro = await AsyncStorage.getItem("hasSeenIntro");
+        if (!hasSeenIntro) {
+            navigation.replace("Intro");
+        }
+    };
+
+    // Function to normalize phone number to +1XXXXXXXXXX
+    const formatPhoneNumber = (input) => {
+        let number = input.replace(/\D/g, ""); // Remove non-numeric characters
+        if (number.startsWith("0")) {
+            number = number.substring(1); // Remove leading zero
+        }
+        return `+1${number}`; // Add country code +1
+    };
+
+    const checkUserPincodeStatus = async (phoneNumber) => {
+        try {
+            const formattedPhone = formatPhoneNumber(phoneNumber);
+            
+            // Check in users collection
+            const userRef = collection(firestore, "users");
+            const userSnapshot = await getDocs(query(userRef, where("phoneNumber", "==", formattedPhone)));
+            
+            if (!userSnapshot.empty) {
+                const userData = userSnapshot.docs[0].data();
+                if (userData.confirmOTP && userData.pincode) {
+                    setConfirmOTP(true);
+                    return true;
+                }
+            }
+            return false;
+        } catch (error) {
+            console.error("Error checking pincode status:", error);
+            return false;
+        }
+    };
+
+    const signInWithPhoneNumberHandler = async () => {
+        if (!phoneNumber.trim() || phoneNumber.length < 10) {
+            Alert.alert("Error", "Please enter a valid phone number.");
+            return;
+        }
+
+        const formattedPhone = formatPhoneNumber(phoneNumber);
+
+        try {
+            setLoading(true);
+
+            // Check in "admins" collection
+            const adminRef = collection(firestore, "admins");
+            const adminSnapshot = await getDocs(query(adminRef, where("phone", "==", formattedPhone)));
+
+            if (!adminSnapshot.empty) {
+                Alert.alert("Welcome!", "Logging in as Admin...");
+                navigation.navigate("AdminDashboard");
+                return;
+            }
+
+            // Check if user has pincode setup
+            const hasPincode = await checkUserPincodeStatus(phoneNumber);
+            
+            if (hasPincode) {
+                setShowPincode(true);
+                return;
+            }
+
+            // Check in "users" collection
+            const userRef = collection(firestore, "users");
+            const userSnapshot = await getDocs(query(userRef, where("phoneNumber", "==", formattedPhone)));
+
+            if (!userSnapshot.empty) {
+                // For existing users without pincode, send OTP
+                const confirmation = await signInWithPhoneNumber(auth, formattedPhone);
+                setConfirm(confirmation);
+                return;
+            }
+
+            // If new user, send OTP
+            const confirmation = await signInWithPhoneNumber(auth, formattedPhone);
+            setConfirm(confirmation);
+            setIsNewUser(true);
+        } catch (error) {
+            Alert.alert("Error", "Failed to check user data. Please try again.");
+            console.log("Error:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const verifyPincode = async () => {
+        if (!pincode.trim() || pincode.length < 4) {
+            Alert.alert("Error", "Please enter a valid 4-digit pincode.");
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const formattedPhone = formatPhoneNumber(phoneNumber);
+            
+            // Check in users collection
+            const userRef = collection(firestore, "users");
+            const userSnapshot = await getDocs(query(userRef, where("phoneNumber", "==", formattedPhone)));
+            
+            if (!userSnapshot.empty) {
+                const userData = userSnapshot.docs[0].data();
+                if (userData.pincode === pincode) {
+                    // Pincode matches, log them in
+                    const userDoc = userSnapshot.docs[0];
+                    navigation.navigate(userData.role === "admin" ? "AdminDashboard" : "Dashboard");
+                } else {
+                    Alert.alert("Error", "Incorrect pincode. Please try again.");
+                }
+            } else {
+                Alert.alert("Error", "User not found. Please register first.");
+            }
+        } catch (error) {
+            Alert.alert("Error", "Failed to verify pincode. Please try again.");
+            console.error("Pincode verification error:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const confirmCode = async () => {
+        if (!code.trim()) {
+            Alert.alert("Error", "Please enter the OTP code.");
+            return;
+        }
+        try {
+            setLoading(true);
+            const userCredential = await confirm.confirm(code);
+            const user = userCredential.user;
+    
+            // Check user role
+            const userDocRef = doc(firestore, "users", user.uid);
+            const userDocument = await getDoc(userDocRef);
+            
+            if (userDocument.exists) {
+                const userData = userDocument.data();
+                // Update confirmOTP status
+                await setDoc(userDocRef, { confirmOTP: true }, { merge: true });
+                
+                if (userData.pincode) {
+                    navigation.navigate(userData.role === "admin" ? "AdminDashboard" : "Dashboard");
+                } else {
+                    setShowPincode(true);
+                }
+            } else {
+                // For new users, set confirmOTP to true and ask for pincode
+                await setDoc(userDocRef, {
+                    phoneNumber: user.phoneNumber,
+                    confirmOTP: true,
+                    createdAt: new Date()
+                });
+                setShowPincode(true);
+            }
+        } catch (error) {
+            Alert.alert("Error", "Invalid verification code.");
+            console.log("Invalid code:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const savePincode = async () => {
+        if (!pincode.trim() || pincode.length < 4) {
+            Alert.alert("Error", "Please enter a valid 4-digit pincode.");
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const user = auth().currentUser;
+            
+            if (user) {
+                const userDocRef = doc(firestore, "users", user.uid);
+                await setDoc(userDocRef, {
+                    pincode: pincode,
+                    confirmOTP: true
+                }, { merge: true });
+
+                if (isNewUser) {
+                    navigation.navigate("Detail", { uid: user.uid });
+                } else {
+                    navigation.navigate("Dashboard");
+                }
+            }
+        } catch (error) {
+            Alert.alert("Error", "Failed to save pincode. Please try again.");
+            console.error("Save pincode error:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const skipLogin = () => {
+        navigation.navigate("Dashboard");
+    };
+
+    return (
+        <View style={styles.container}>
+            <Image source={require("../assets/cong.png")} style={styles.logo} />
+            <Text style={styles.title}>Welcome to MUNTINLUPA DISTRICT OFFICE</Text>
+            <Text style={styles.description}>
+                Securely sign in with your phone number. {showPincode ? "Enter your pincode" : confirm ? "Enter the OTP sent to your phone" : "A one-time password (OTP) will be sent via SMS."}
+            </Text>
+
+            {!showPincode ? (
+                <>
+                    <TextInput
+                        label={!confirm ? "Phone Number" : "Enter OTP Code"}
+                        mode="outlined"
+                        value={!confirm ? phoneNumber : code}
+                        onChangeText={!confirm ? setPhoneNumber : setCode}
+                        keyboardType={!confirm ? "phone-pad" : "number-pad"}
+                        autoCompleteType={!confirm ? "tel" : "sms-otp"}
+                        textContentType={!confirm ? "telephoneNumber" : "oneTimeCode"}
+                        left={
+                            <TextInput.Icon
+                                icon={() => <MaterialCommunityIcons name={!confirm ? "phone" : "lock"} size={24} color="#003580" />}
+                            />
+                        }
+                        style={styles.input}
+                        outlineColor="#003580"
+                        activeOutlineColor="#002B5C"
+                    />
+
+                    <Button
+                        mode="contained"
+                        onPress={!confirm ? signInWithPhoneNumberHandler : confirmCode}
+                        style={[styles.button, loading && styles.buttonDisabled]}
+                        labelStyle={styles.buttonText}
+                        disabled={loading}
+                    >
+                        {loading ? <ActivityIndicator color="white" size="small" /> : !confirm ? "Send Code" : "Verify OTP"}
+                    </Button>
+                </>
+            ) : (
+                <>
+                    <TextInput
+                        label="Enter your 4-digit Pincode"
+                        mode="outlined"
+                        value={pincode}
+                        onChangeText={setPincode}
+                        keyboardType="number-pad"
+                        secureTextEntry={true}
+                        maxLength={4}
+                        left={
+                            <TextInput.Icon
+                                icon={() => <MaterialCommunityIcons name="lock" size={24} color="#003580" />}
+                            />
+                        }
+                        style={styles.input}
+                        outlineColor="#003580"
+                        activeOutlineColor="#002B5C"
+                    />
+
+                    <Button
+                        mode="contained"
+                        onPress={confirmOTP ? verifyPincode : savePincode}
+                        style={[styles.button, loading && styles.buttonDisabled]}
+                        labelStyle={styles.buttonText}
+                        disabled={loading}
+                    >
+                        {loading ? <ActivityIndicator color="white" size="small" /> : confirmOTP ? "Verify Pincode" : "Create Pincode"}
+                    </Button>
+                </>
+            )}
+
+            {/* Skip Button */}
+            <Button mode="text" onPress={skipLogin} style={styles.skipButton} labelStyle={styles.skipButtonText}>
+                Skip for Now
+            </Button>
+
+            <Text style={styles.footerText}>
+                Need help? <Text style={styles.link}>Contact Support</Text>
+            </Text>
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+        padding: 20,
+        backgroundColor: "#fff",
+    },
+    logo: {
+        width: 100,
+        height: 100,
+        marginBottom: 20,
+    },
+    title: {
+        fontSize: 22,
+        fontWeight: "bold",
+        marginBottom: 10,
+        textAlign: "center",
+    },
+    description: {
+        fontSize: 14,
+        color: "#666",
+        textAlign: "center",
+        marginBottom: 20,
+    },
+    input: {
+        width: "100%",
+        marginBottom: 20,
+    },
+    button: {
+        width: "100%",
+        paddingVertical: 8,
+        backgroundColor: "#003580",
+    },
+    buttonDisabled: {
+        backgroundColor: "#ccc",
+    },
+    buttonText: {
+        color: "#fff",
+        fontSize: 16,
+    },
+    skipButton: {
+        marginTop: 10,
+    },
+    skipButtonText: {
+        color: "#003580",
+    },
+    footerText: {
+        marginTop: 20,
+        fontSize: 12,
+        color: "#666",
+    },
+    link: {
+        color: "#003580",
+        textDecorationLine: "underline",
+    },
+});
