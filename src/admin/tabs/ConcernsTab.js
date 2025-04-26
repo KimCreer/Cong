@@ -10,9 +10,19 @@ import {
     Alert
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { getFirestore, collection, query, where, getDocs, onSnapshot } from "@react-native-firebase/firestore";
+import { 
+    getFirestore, 
+    collection, 
+    query, 
+    where, 
+    getDocs, 
+    onSnapshot, 
+    orderBy 
+} from "@react-native-firebase/firestore";
+import { useNavigation } from '@react-navigation/native';
 
-const ConcernsTab = ({ navigation }) => {
+const ConcernsTab = () => {
+    const navigation = useNavigation();
     const [concerns, setConcerns] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -23,14 +33,15 @@ const ConcernsTab = ({ navigation }) => {
             const db = getFirestore();
             const q = query(
                 collection(db, "concerns"),
-                where("status", "in", ["new", "in-progress"]),
+                where("status", "in", ["Pending", "In Progress"]),
                 orderBy("createdAt", "desc")
             );
             
             const querySnapshot = await getDocs(q);
             const data = querySnapshot.docs.map(doc => ({
                 id: doc.id,
-                ...doc.data()
+                ...doc.data(),
+                timeAgo: doc.data().createdAt ? formatTimeAgo(doc.data().createdAt.toDate()) : "Unknown date"
             }));
             
             setConcerns(data);
@@ -43,6 +54,23 @@ const ConcernsTab = ({ navigation }) => {
         }
     };
 
+    const formatTimeAgo = (date) => {
+        if (!date) return "Unknown date";
+        const seconds = Math.floor((new Date() - date) / 1000);
+        let interval = Math.floor(seconds / 31536000);
+        
+        if (interval >= 1) return `${interval} year${interval === 1 ? '' : 's'} ago`;
+        interval = Math.floor(seconds / 2592000);
+        if (interval >= 1) return `${interval} month${interval === 1 ? '' : 's'} ago`;
+        interval = Math.floor(seconds / 86400);
+        if (interval >= 1) return `${interval} day${interval === 1 ? '' : 's'} ago`;
+        interval = Math.floor(seconds / 3600);
+        if (interval >= 1) return `${interval} hour${interval === 1 ? '' : 's'} ago`;
+        interval = Math.floor(seconds / 60);
+        if (interval >= 1) return `${interval} minute${interval === 1 ? '' : 's'} ago`;
+        return `${Math.floor(seconds)} second${seconds === 1 ? '' : 's'} ago`;
+    };
+
     useEffect(() => {
         fetchConcerns();
         
@@ -50,14 +78,15 @@ const ConcernsTab = ({ navigation }) => {
         const db = getFirestore();
         const q = query(
             collection(db, "concerns"),
-            where("status", "in", ["new", "in-progress"]),
+            where("status", "in", ["Pending", "In Progress"]),
             orderBy("createdAt", "desc")
         );
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const updatedData = snapshot.docs.map(doc => ({
                 id: doc.id,
-                ...doc.data()
+                ...doc.data(),
+                timeAgo: doc.data().createdAt ? formatTimeAgo(doc.data().createdAt.toDate()) : "Unknown date"
             }));
             setConcerns(updatedData);
         });
@@ -66,30 +95,39 @@ const ConcernsTab = ({ navigation }) => {
     }, []);
 
     const getStatusColor = (status) => {
-        switch(status) {
-            case 'new': return '#FF9800';
-            case 'in-progress': return '#2196F3';
+        if (!status) return '#9E9E9E';
+        switch(status.toLowerCase()) {
+            case 'pending': return '#FF9800';
+            case 'in progress': return '#2196F3';
             case 'resolved': return '#4CAF50';
             default: return '#9E9E9E';
         }
     };
 
+    const formatStatusText = (status) => {
+        if (!status) return 'Unknown';
+        return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+    };
+
     const ConcernCard = ({ concern, onPress }) => (
         <TouchableOpacity style={styles.concernCard} onPress={onPress}>
             <Text style={styles.concernTitle} numberOfLines={2}>
-                {concern.title}
+                {concern.title || "No title"}
             </Text>
             <Text style={styles.concernDescription} numberOfLines={2}>
-                {concern.description}
+                {concern.description || "No description"}
             </Text>
             <View style={styles.concernFooter}>
                 <View style={[styles.statusBadge, { backgroundColor: getStatusColor(concern.status) }]}>
-                    <Text style={styles.statusText}>{concern.status}</Text>
+                    <Text style={styles.statusText}>{formatStatusText(concern.status)}</Text>
                 </View>
                 <Text style={styles.concernDate}>
-                    {new Date(concern.createdAt?.toDate()).toLocaleDateString()}
+                    {concern.timeAgo || "Unknown date"}
                 </Text>
             </View>
+            {concern.imageUrl && (
+                <FontAwesome5 name="camera" size={16} color="#666" style={styles.photoIcon} />
+            )}
         </TouchableOpacity>
     );
 
@@ -104,11 +142,13 @@ const ConcernsTab = ({ navigation }) => {
                     renderItem={({ item }) => (
                         <ConcernCard 
                             concern={item}
-                            onPress={() => navigation.navigate('ConcernDetail', { id: item.id })}
+                            onPress={() => navigation.navigate('ConcernDetails', { concernId: item.id })}
                         />
                     )}
                     ListEmptyComponent={
-                        <Text style={styles.emptyText}>No unresolved concerns found</Text>
+                        <View style={styles.emptyContainer}>
+                            <Text style={styles.emptyText}>No unresolved concerns found</Text>
+                        </View>
                     }
                     refreshControl={
                         <RefreshControl
@@ -117,7 +157,7 @@ const ConcernsTab = ({ navigation }) => {
                             colors={["#003366", "#0275d8"]}
                         />
                     }
-                    contentContainerStyle={concerns.length === 0 && styles.emptyContainer}
+                    contentContainerStyle={concerns.length === 0 && styles.emptyListContainer}
                 />
             )}
         </View>
@@ -128,6 +168,7 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         padding: 15,
+        backgroundColor: '#f5f5f5',
     },
     loader: {
         flex: 1,
@@ -170,20 +211,30 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 12,
         fontWeight: 'bold',
-        textTransform: 'capitalize',
     },
     concernDate: {
         fontSize: 12,
         color: '#999',
     },
+    photoIcon: {
+        position: 'absolute',
+        top: 15,
+        right: 15,
+    },
     emptyContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
+        padding: 20,
     },
     emptyText: {
         color: '#999',
         fontSize: 16,
+        textAlign: 'center',
+    },
+    emptyListContainer: {
+        flex: 1,
+        justifyContent: 'center',
     },
 });
 

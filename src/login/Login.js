@@ -4,15 +4,96 @@ import { TextInput, Button, ActivityIndicator } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from 'expo-secure-store';
 import { getAuth, signInWithPhoneNumber, signOut } from "@react-native-firebase/auth";
-import { getFirestore, collection, query, where, getDocs, doc, getDoc } from "@react-native-firebase/firestore";
+import { getFirestore, collection, query, where, getDocs, doc, getDoc, setDoc } from "@react-native-firebase/firestore";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
+import * as LocalAuthentication from 'expo-local-authentication';
+import * as DeviceInfo from 'expo-device';
+import * as Crypto from 'expo-crypto';
+
+
+import styles from './styles/LoginStyles';
 
 const { width, height } = Dimensions.get("window");
 
-// PIN-related constants
+// Security constants
 const MAX_PIN_ATTEMPTS = 5;
-const PIN_LENGTH = 6;
+const PIN_LENGTH = 4;
+const LOCKOUT_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Security helper functions
+const generateDeviceSalt = async () => {
+    try {
+      let salt = await SecureStore.getItemAsync('deviceSalt');
+      if (!salt) {
+        // Use the correct method from expo-crypto
+        const randomBytes = await Crypto.getRandomBytesAsync(16);
+        salt = Array.from(new Uint8Array(randomBytes))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        await SecureStore.setItemAsync('deviceSalt', salt);
+      }
+      return salt;
+    } catch (error) {
+      console.error("Salt generation error:", error);
+      throw error;
+    }
+  };
+
+  const hashPin = async (pin, salt, userId) => {
+    try {
+      const message = pin + salt + userId;
+      // Use digestStringAsync instead of digest
+      const digest = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        message
+      );
+      return digest;
+    } catch (error) {
+      console.error("Hashing error:", error);
+      throw error;
+    }
+  };
+  
+
+const generateDeviceFingerprint = async () => {
+  try {
+    const deviceId = await DeviceInfo.getDeviceIdAsync();
+    const salt = await generateDeviceSalt();
+    const hashedFingerprint = await hashPin(deviceId, salt, 'device');
+    await SecureStore.setItemAsync('deviceFingerprint', hashedFingerprint);
+    return hashedFingerprint;
+  } catch (error) {
+    console.error("Device fingerprint error:", error);
+    throw error;
+  }
+};
+
+const verifyDevice = async () => {
+  try {
+    const currentFingerprint = await DeviceInfo.getDeviceIdAsync();
+    const storedFingerprint = await SecureStore.getItemAsync('deviceFingerprint');
+    
+    if (!storedFingerprint) {
+      await generateDeviceFingerprint();
+      return true;
+    }
+    
+    const salt = await generateDeviceSalt();
+    const currentHash = await hashPin(currentFingerprint, salt, 'device');
+    
+    if (currentHash !== storedFingerprint) {
+      logSecurityEvent("DEVICE_MISMATCH");
+      await clearUserSession();
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error("Device verification error:", error);
+    return false;
+  }
+};
 
 const NumberPad = ({ onPress, onBackspace, disabled }) => {
   const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, '', 0, 'backspace'];
@@ -39,9 +120,15 @@ const NumberPad = ({ onPress, onBackspace, disabled }) => {
           activeOpacity={0.7}
         >
           {num === 'backspace' ? (
-            <MaterialCommunityIcons name="backspace-outline" size={24} color={disabled ? "#ccc" : "#003580"} />
+            <MaterialCommunityIcons 
+              name="backspace-outline" 
+              size={24} 
+              color={disabled ? "#ccc" : "#003580"} 
+            />
           ) : (
-            <Text style={[styles.numberText, disabled && styles.disabledText]}>{num}</Text>
+            <Text style={[styles.numberText, disabled && styles.disabledText]}>
+              {num}
+            </Text>
           )}
         </TouchableOpacity>
       ))}
@@ -76,6 +163,7 @@ const PinInput = ({ pin, length, activeIndex, error, loading }) => {
 };
 
 export default function Login() {
+    // State variables
     const [phoneNumber, setPhoneNumber] = useState("");
     const [displayPhoneNumber, setDisplayPhoneNumber] = useState("");
     const [code, setCode] = useState("");
@@ -86,107 +174,153 @@ export default function Login() {
     const [showSetPinScreen, setShowSetPinScreen] = useState(false);
     const [pinAttempts, setPinAttempts] = useState(0);
     const [isResettingPin, setIsResettingPin] = useState(false);
-    const [isChangingNumber, setIsChangingNumber] = useState(false);
     const [pinError, setPinError] = useState(false);
     const [activePinIndex, setActivePinIndex] = useState(0);
+    const [confirmPin, setConfirmPin] = useState("");
+    const [pinStep, setPinStep] = useState(1);
+    const [lockoutUntil, setLockoutUntil] = useState(null);
+    const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
     const shakeAnimation = useRef(new Animated.Value(0)).current;
     const navigation = useNavigation();
     
-    // Initialize Firebase services
+    // Firebase services
     const auth = getAuth();
     const firestore = getFirestore();
-    
 
-    const startShake = () => {
-      setPinError(true);
-      Animated.sequence([
-        Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
-        Animated.timing(shakeAnimation, { toValue: -10, duration: 50, useNativeDriver: true }),
-        Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
-        Animated.timing(shakeAnimation, { toValue: 0, duration: 50, useNativeDriver: true })
-      ]).start(() => {
-        setTimeout(() => setPinError(false), 500);
-      });
-    };
+    // Check biometric availability
+    useEffect(() => {
+        const checkBiometrics = async () => {
+            try {
+                const hasHardware = await LocalAuthentication.hasHardwareAsync();
+                const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+                setIsBiometricAvailable(hasHardware && isEnrolled);
+            } catch (error) {
+                console.error("Biometric check error:", error);
+                logSecurityEvent("BIOMETRIC_CHECK_ERROR", error.message);
+            }
+        };
+        checkBiometrics();
+    }, []);
 
-   // In your Login component
+    // Check for lockout status
+    useEffect(() => {
+        const checkLockout = async () => {
+            try {
+                const lockoutTime = await SecureStore.getItemAsync('lockoutUntil');
+                
+                if (lockoutTime) {
+                    const lockoutDate = new Date(parseInt(lockoutTime));
+                    if (lockoutDate > new Date()) {
+                        setLockoutUntil(lockoutDate);
+                    } else {
+                        await SecureStore.deleteItemAsync('lockoutUntil');
+                    }
+                }
+            } catch (error) {
+                console.error("Lockout check error:", error);
+                logSecurityEvent("LOCKOUT_CHECK_ERROR", error.message);
+            }
+        };
+        checkLockout();
+    }, []);
 
-useEffect(() => {
-    const initialize = async () => {
+    // Initialize the login state
+    useEffect(() => {
+        const initialize = async () => {
+            try {
+                const lastLogin = await SecureStore.getItemAsync('lastLogin');
+                if (!lastLogin) {
+                    setShowPinScreen(false);
+                    setShowSetPinScreen(false);
+                    return;
+                }
+                
+                await checkForExistingUser();
+            } catch (error) {
+                console.error("Initialization error:", error);
+                logSecurityEvent("INIT_ERROR", error.message);
+            }
+        };
+        
+        initialize();
+    }, []);
+
+    // Handle PIN input changes
+    useEffect(() => {
+        setActivePinIndex(pin.length);
+        
+        if (pin.length === PIN_LENGTH && !loading) {
+            if (showPinScreen) {
+                verifyPin();
+            } else if (showSetPinScreen) {
+                handleSetPin();
+            }
+        }
+    }, [pin]);
+
+    // Log security events
+    const logSecurityEvent = async (eventType, details = "") => {
         try {
-            // First check if we should show intro
-            await checkIfFirstLaunch();
+            const timestamp = new Date().toISOString();
+            const deviceId = await SecureStore.getItemAsync('deviceId') || 'unknown';
+            const userId = await SecureStore.getItemAsync('userUid') || 'unknown';
             
-            // Then check auth state
-            const lastLogin = await SecureStore.getItemAsync('lastLogin');
-            if (!lastLogin) {
-                setShowPinScreen(false);
-                setShowSetPinScreen(false);
-                return;
-            }
+            const event = {
+                type: eventType,
+                timestamp,
+                details,
+                deviceId,
+                userId,
+                ipAddress: 'unknown'
+            };
             
-            // Then proceed with normal initialization
-            await checkForExistingUser();
+            console.log("SECURITY_EVENT:", event);
         } catch (error) {
-            console.error("Initialization error:", error);
+            console.error("Error logging security event:", error);
         }
     };
-    
-    initialize();
-}, []);
 
-useEffect(() => {
-    setActivePinIndex(pin.length);
-    
-    // Only proceed if we're not already loading and PIN is complete
-    if (pin.length === PIN_LENGTH && !loading) {
-        if (showPinScreen) {
-            verifyPin();
-        } else if (showSetPinScreen) {
-            handleSetPin();
-        }
-    }
-}, [pin]);
+    // Shake animation for wrong PIN attempts
+    const startShake = () => {
+        setPinError(true);
+        Animated.sequence([
+            Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
+            Animated.timing(shakeAnimation, { toValue: -10, duration: 50, useNativeDriver: true }),
+            Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
+            Animated.timing(shakeAnimation, { toValue: 0, duration: 50, useNativeDriver: true })
+        ]).start(() => {
+            setTimeout(() => setPinError(false), 500);
+        });
+    };
 
-const checkIfFirstLaunch = async () => {
-    try {
-        const hasLaunchedBefore = await AsyncStorage.getItem("hasLaunchedBefore");
-        if (!hasLaunchedBefore) {
-            // Mark as launched and show intro
-            await AsyncStorage.setItem("hasLaunchedBefore", "true");
-            await AsyncStorage.setItem("hasSeenIntro", "false");
-            navigation.replace("Intro");
-        } else {
-            // Check if they've seen intro (for cases where they might have skipped)
-            const hasSeenIntro = await AsyncStorage.getItem("hasSeenIntro");
-            if (hasSeenIntro === "false") {
-                navigation.replace("Intro");
-            }
-        }
-    } catch (error) {
-        console.log("Error checking first launch:", error);
-        // Default to showing intro if there's an error
-        navigation.replace("Intro");
-    }
-};
+    // Check if user exists in SecureStore
     const checkForExistingUser = async () => {
         try {
-            const storedPhone = await SecureStore.getItemAsync('userPhone');
-            const storedPin = await SecureStore.getItemAsync('userPin');
-            const storedUid = await SecureStore.getItemAsync('userUid');
+            const [storedPhone, storedUid] = await Promise.all([
+                SecureStore.getItemAsync('userPhone'),
+                SecureStore.getItemAsync('userUid')
+            ]);
             
-            if (storedPhone && storedPin && storedUid) {
-                // Format phone number for display (e.g., +1 912 345 6789)
+            if (storedPhone && storedUid) {
                 const formattedDisplay = formatPhoneNumberForDisplay(storedPhone);
                 setDisplayPhoneNumber(formattedDisplay);
                 setPhoneNumber(storedPhone.replace('+1', ''));
-                setShowPinScreen(true);
+                
+                // Check if this user has a PIN set
+                const pinHash = await SecureStore.getItemAsync(`userPinHash_${storedUid}`);
+                if (pinHash) {
+                    setShowPinScreen(true);
+                } else {
+                    setShowSetPinScreen(true);
+                }
             }
         } catch (error) {
             console.log("Error checking for existing user:", error);
+            logSecurityEvent("USER_CHECK_ERROR", error.message);
         }
     };
 
+    // Format phone number for Firebase
     const formatPhoneNumber = (input) => {
         let number = input.replace(/\D/g, "");
         if (number.startsWith("0")) {
@@ -195,8 +329,8 @@ const checkIfFirstLaunch = async () => {
         return `+1${number}`;
     };
 
+    // Format phone number for display
     const formatPhoneNumberForDisplay = (phone) => {
-        // Format as +1 912 345 6789
         const cleaned = phone.replace(/\D/g, '');
         const match = cleaned.match(/^(\d{1})(\d{3})(\d{3})(\d{4})$/);
         if (match) {
@@ -205,16 +339,12 @@ const checkIfFirstLaunch = async () => {
         return phone;
     };
 
-    const formatPhoneNumberInput = (input) => {
-        // Format as user types: 0912 345 6789
-        let cleaned = input.replace(/\D/g, '');
-        
-        // Remove leading 0 if present
+    // Format phone number as user types
+    const formatPhoneNumberInput = (text) => {
+        let cleaned = text.replace(/\D/g, '');
         if (cleaned.startsWith('0')) {
             cleaned = cleaned.substring(1);
         }
-        
-        // Limit to 10 digits
         cleaned = cleaned.substring(0, 10);
         
         const match = cleaned.match(/^(\d{0,3})(\d{0,3})(\d{0,4})$/);
@@ -225,63 +355,236 @@ const checkIfFirstLaunch = async () => {
             if (match[3]) formatted += ' ' + match[3];
             return formatted.trim();
         }
-        return input;
+        return text;
     };
 
+    // Handle phone number input changes
     const handlePhoneNumberChange = (text) => {
         const formatted = formatPhoneNumberInput(text);
         setPhoneNumber(formatted);
     };
 
+    // Handle PIN number input
     const handlePinInput = (num) => {
-      if (pin.length < PIN_LENGTH && !loading) {
-        setPin(prev => prev + num);
-      }
+        if (pin.length < PIN_LENGTH && !loading) {
+            setPin(prev => prev + num);
+        }
     };
 
+    // Handle PIN backspace
     const handlePinBackspace = () => {
-      if (pin.length > 0 && !loading) {
-        setPin(prev => prev.slice(0, -1));
-      }
+        if (pin.length > 0 && !loading) {
+            setPin(prev => prev.slice(0, -1));
+        }
     };
 
+    // Biometric authentication handler
+
+    // Clear user session data
+    const clearUserSession = async () => {
+        try {
+            await signOut(auth);
+            await Promise.all([
+                SecureStore.deleteItemAsync('userUid'),
+                SecureStore.deleteItemAsync('userPhone'),
+                SecureStore.deleteItemAsync('lastLogin'),
+                SecureStore.deleteItemAsync('isAdmin'),
+                SecureStore.deleteItemAsync('lockoutUntil')
+            ]);
+            
+            // Note: We don't delete the PIN hash here because it's tied to the user
+            // and might be needed if they log back in on the same device
+        } catch (error) {
+            console.log("Sign-out error:", error);
+            logSecurityEvent("LOGOUT_ERROR", error.message);
+        }
+    };
+    
+    // Verify regular PIN
+    const verifyPin = async () => {
+        if (pin.length !== PIN_LENGTH) return;
+        
+        try {
+            setLoading(true);
+            
+            const [storedUid, storedPhone] = await Promise.all([
+                SecureStore.getItemAsync('userUid'),
+                SecureStore.getItemAsync('userPhone')
+            ]);
+
+            if (!storedUid) {
+                throw new Error("User session expired. Please login again.");
+            }
+    
+            // Get the stored PIN hash for this user
+            const salt = await generateDeviceSalt();
+            const storedPinHash = await SecureStore.getItemAsync(`userPinHash_${storedUid}`);
+            const currentPinHash = await hashPin(pin, salt, storedUid);
+            
+            if (currentPinHash !== storedPinHash) {
+                handleWrongPinAttempt();
+                return;
+            }
+    
+            // Reset attempts and PIN input
+            setPinAttempts(0);
+            setPin("");
+            
+            // For regular users, proceed to dashboard
+            const userDoc = await getDoc(doc(firestore, "users", storedUid));
+            if (!userDoc.exists) {
+                throw new Error("User record not found");
+            }
+            
+            const userData = userDoc.data();
+            
+            await logSecurityEvent("USER_LOGIN_SUCCESS");
+            await SecureStore.setItemAsync('lastLogin', new Date().toISOString());
+            
+            // Reset navigation stack completely to prevent going back
+            navigation.reset({
+                index: 0,
+                routes: [{
+                    name: "Dashboard",
+                    params: { userData }
+                }]
+            });
+            
+        } catch (error) {
+            console.error("PIN Verification Error:", error);
+            logSecurityEvent("PIN_VERIFICATION_ERROR", error.message);
+            Alert.alert(
+                "Error",
+                error.message || "An error occurred during login."
+            );
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Handle wrong PIN attempts
+    const handleWrongPinAttempt = async () => {
+        const attemptsLeft = MAX_PIN_ATTEMPTS - pinAttempts - 1;
+        
+        startShake();
+        
+        if (attemptsLeft <= 0) {
+            const lockoutTime = new Date(Date.now() + LOCKOUT_DURATION);
+            setLockoutUntil(lockoutTime);
+            await SecureStore.setItemAsync('lockoutUntil', lockoutTime.getTime().toString());
+            
+            logSecurityEvent("USER_LOCKOUT");
+            
+            Alert.alert(
+                "Security Lock",
+                "Too many failed attempts. Please sign in with OTP.",
+                [{
+                    text: "OK",
+                    onPress: async () => {
+                        await clearUserSession();
+                        setShowPinScreen(false);
+                        setPinAttempts(0);
+                    }
+                }]
+            );
+        } else {
+            Alert.alert(
+                "Incorrect PIN",
+                `You have ${attemptsLeft} attempt${attemptsLeft > 1 ? 's' : ''} remaining`
+            );
+            setPinAttempts(prev => prev + 1);
+        }
+        setPin("");
+    };
+
+    // Handle phone number sign in
     const signInWithPhoneNumberHandler = async () => {
         const cleanedNumber = phoneNumber.replace(/\D/g, '');
         if (!cleanedNumber || cleanedNumber.length < 10) {
             Alert.alert("Error", "Please enter a valid 10-digit phone number.");
             return;
         }
-
+    
         const formattedPhone = formatPhoneNumber(cleanedNumber);
-
+    
         try {
             setLoading(true);
             Keyboard.dismiss();
-
-            // Check if this is during PIN reset or number change flow
-            if (isResettingPin || isChangingNumber) {
+    
+            // Check if this is during PIN reset flow
+            if (isResettingPin) {
                 const confirmation = await signInWithPhoneNumber(auth, formattedPhone);
                 setConfirm(confirmation);
                 return;
             }
-
-            // Check user role in Firestore
+    
+            // Check user role in Firestore - this replaces the ADMIN_PHONES check
             const [adminSnapshot, userSnapshot] = await Promise.all([
-                getDocs(query(collection(firestore, "admin"), where("phone", "==", formattedPhone))),
+                getDocs(query(collection(firestore, "admins"), where("phone", "==", formattedPhone))),
                 getDocs(query(collection(firestore, "users"), where("phoneNumber", "==", formattedPhone)))
             ]);
-
+            
+    
             if (!adminSnapshot.empty) {
-                const adminData = adminSnapshot.docs[0].data();
-                await SecureStore.setItemAsync('userUid', adminSnapshot.docs[0].id);
-                navigation.navigate("AdminDashboard", { userData: adminData });
+                const adminDoc = adminSnapshot.docs[0];
+                const adminData = adminDoc.data();
+                
+                // Verify admin phone matches database
+                if (adminData.phone !== formattedPhone) {
+                    Alert.alert("Unauthorized", "This phone number is not registered as an admin.");
+                    return;
+                }
+    
+                // Store admin credentials
+                await Promise.all([
+                    SecureStore.setItemAsync('userUid', adminDoc.id),
+                    SecureStore.setItemAsync('isAdmin', 'true'),
+                    SecureStore.setItemAsync('adminPhone', formattedPhone)
+                ]);
+                
+                // Navigate to admin setup if first time
+                const adminPinHash = await SecureStore.getItemAsync('adminPinHash');
+                
+                if (!adminPinHash) {
+                    navigation.navigate("AdminSetup", { 
+                        adminData,
+                        phoneNumber: formattedPhone,
+                        isInitialSetup: true
+                    });
+                    return;
+                }
+                
+                // For existing admin, proceed with normal login flow
+                await SecureStore.setItemAsync('userPhone', formattedPhone);
+                setDisplayPhoneNumber(formatPhoneNumberForDisplay(formattedPhone));
+                setShowPinScreen(true);
                 return;
             }
 
             if (!userSnapshot.empty) {
-                const userData = userSnapshot.docs[0].data();
-                await SecureStore.setItemAsync('userUid', userSnapshot.docs[0].id);
-                navigation.navigate("Dashboard", { userData });
+                const userDoc = userSnapshot.docs[0];
+                const userData = userDoc.data();
+                
+                // Verify user phone matches database
+                if (userData.phoneNumber !== formattedPhone) {
+                    Alert.alert("Verification Failed", "Phone number doesn't match user records");
+                    return;
+                }
+
+                await Promise.all([
+                    SecureStore.setItemAsync('userUid', userDoc.id),
+                    SecureStore.setItemAsync('isAdmin', 'false'),
+                    SecureStore.setItemAsync('userPhone', formattedPhone)
+                ]);
+                
+                // Check if user has a PIN set
+                const pinHash = await SecureStore.getItemAsync(`userPinHash_${userDoc.id}`);
+                if (pinHash) {
+                    setDisplayPhoneNumber(formatPhoneNumberForDisplay(formattedPhone));
+                    setShowPinScreen(true);
+                } else {
+                    setShowSetPinScreen(true);
+                }
                 return;
             }
 
@@ -289,6 +592,7 @@ const checkIfFirstLaunch = async () => {
             const confirmation = await signInWithPhoneNumber(auth, formattedPhone);
             setConfirm(confirmation);
         } catch (error) {
+            logSecurityEvent("LOGIN_ERROR", error.message);
             Alert.alert("Error", error.message || "Failed to check user data. Please try again.");
             console.error("Sign in error:", error);
         } finally {
@@ -296,6 +600,7 @@ const checkIfFirstLaunch = async () => {
         }
     };
 
+    // Confirm OTP code
     const confirmCode = async () => {
         if (!code.trim()) {
             Alert.alert("OTP Required", "Please enter the verification code sent to your phone");
@@ -326,26 +631,15 @@ const checkIfFirstLaunch = async () => {
                 setIsResettingPin(false);
                 return;
             }
-            
-            // 4. Handle phone number change flow
-            if (isChangingNumber) {
-                // Clear existing PIN since it's a new number
-                await SecureStore.deleteItemAsync('userPin');
-                setShowSetPinScreen(true);
-                setConfirm(null);
-                setCode("");
-                setIsChangingNumber(false);
-                return;
-            }
     
-            // 5. Check if user needs to set a PIN
-            const hasPin = await SecureStore.getItemAsync('userPin');
-            if (!hasPin) {
+            // 4. Check if user needs to set a PIN
+            const pinHash = await SecureStore.getItemAsync(`userPinHash_${user.uid}`);
+            if (!pinHash) {
                 setShowSetPinScreen(true);
                 return;
             }
     
-            // 6. Retrieve and verify user document
+            // 5. Retrieve and verify user document
             const userDoc = await getDoc(doc(firestore, "users", user.uid));
             
             if (!userDoc.exists) {
@@ -358,7 +652,7 @@ const checkIfFirstLaunch = async () => {
     
             const userData = userDoc.data();
             
-            // 7. Navigate to appropriate dashboard
+            // 6. Navigate to appropriate dashboard with reset stack
             navigation.reset({
                 index: 0,
                 routes: [{
@@ -369,6 +663,7 @@ const checkIfFirstLaunch = async () => {
     
         } catch (error) {
             console.error("OTP Confirmation Error:", error);
+            logSecurityEvent("OTP_ERROR", error.message);
             
             let errorMessage = "Invalid verification code";
             if (error.code === 'auth/invalid-verification-code') {
@@ -386,17 +681,46 @@ const checkIfFirstLaunch = async () => {
         }
     };
 
+    // Handle setting PIN
     const handleSetPin = async () => {
         if (pin.length !== PIN_LENGTH) return;
+    
+        if (pinStep === 1) {
+            setConfirmPin(pin);
+            setPin("");
+            setPinStep(2);
+            return;
+        }
+    
+        // Verify the PIN matches
+        if (pin !== confirmPin) {
+            startShake();
+            Alert.alert("PIN Mismatch", "The PINs you entered don't match. Please try again.");
+            setPin("");
+            setPinStep(1);
+            return;
+        }
     
         try {
             setLoading(true);
             
-            // 1. First store the PIN
-            await SecureStore.setItemAsync('userPin', pin);
+            // Get user UID and generate salt
+            const userUid = await SecureStore.getItemAsync('userUid');
+            if (!userUid) {
+                throw new Error("User session expired. Please login again.");
+            }
+            
+            const salt = await generateDeviceSalt();
+            const pinHash = await hashPin(pin, salt, userUid);
+            
+            // Store the hashed PIN with user-specific key
+            await SecureStore.setItemAsync(`userPinHash_${userUid}`, pinHash);
+            
             setPin("");
+            setConfirmPin("");
+            setPinStep(1);
     
-            // 2. Handle PIN reset flow
+            // Handle PIN reset flow
             if (isResettingPin) {
                 setIsResettingPin(false);
                 setShowSetPinScreen(false);
@@ -405,25 +729,20 @@ const checkIfFirstLaunch = async () => {
                 return;
             }
     
-            // 3. Get user UID with proper error handling
-            const userUid = await SecureStore.getItemAsync('userUid');
-            
-            if (!userUid) {
-                console.warn("No UID found in SecureStore");
-                // If we don't have a UID, we need to get one
-                const formattedPhone = formatPhoneNumber(phoneNumber.replace(/\D/g, ''));
-                navigation.navigate("Detail", { phoneNumber: formattedPhone });
-                return;
-            }
-    
-            // 4. Try to get user document from Firestore
+            // Try to get user document from Firestore
             try {
                 const userDoc = await getDoc(doc(firestore, "users", userUid));
                 
                 if (userDoc.exists) {
-                    navigation.navigate("Dashboard", { userData: userDoc.data() });
+                    // Reset navigation stack completely to prevent going back
+                    navigation.reset({
+                        index: 0,
+                        routes: [{
+                            name: "Dashboard",
+                            params: { userData: userDoc.data() }
+                        }]
+                    });
                 } else {
-                    // If document doesn't exist, go to detail screen
                     const formattedPhone = formatPhoneNumber(phoneNumber.replace(/\D/g, ''));
                     navigation.navigate("Detail", { 
                         uid: userUid,
@@ -455,145 +774,8 @@ const checkIfFirstLaunch = async () => {
             setLoading(false);
         }
     };
-    const verifyPin = async () => {
-        if (pin.length !== PIN_LENGTH) {
-            return;
-        }
-        
-        try {
-            setLoading(true);
-            
-            // 1. Retrieve stored credentials
-            const [storedPin, storedUid, storedPhone] = await Promise.all([
-                SecureStore.getItemAsync('userPin'),
-                SecureStore.getItemAsync('userUid'),
-                SecureStore.getItemAsync('userPhone')
-            ]);
-    
-            // 2. Verify PIN
-            if (pin !== storedPin) {
-                handleWrongPinAttempt();
-                return;
-            }
-    
-            // 3. Reset attempts and PIN input
-            setPinAttempts(0);
-            setPin("");
-    
-            // 4. Get user data directly from Firestore
-            let userData = null;
-            
-            // Try with UID first
-            if (storedUid) {
-                const userDoc = await getDoc(doc(firestore, "users", storedUid));
-                if (userDoc.exists) {
-                    userData = userDoc.data();
-                    
-                    // Update last login time
-                    await SecureStore.setItemAsync('lastLogin', new Date().toISOString());
-                    
-                    navigation.reset({
-                        index: 0,
-                        routes: [{
-                            name: userData.role === "admin" ? "AdminDashboard" : "Dashboard",
-                            params: { userData }
-                        }]
-                    });
-                    return;
-                }
-            }
-    
-            // Fallback to phone number if UID fails
-            if (storedPhone) {
-                const querySnapshot = await getDocs(
-                    query(
-                        collection(firestore, "users"),
-                        where("phoneNumber", "==", storedPhone)
-                    )
-                );
-    
-                if (!querySnapshot.empty) {
-                    const userDoc = querySnapshot.docs[0];
-                    userData = userDoc.data();
-                    
-                    // Update stored UID for future logins
-                    await SecureStore.setItemAsync('userUid', userDoc.id);
-                    
-                    navigation.reset({
-                        index: 0,
-                        routes: [{
-                            name: userData.role === "admin" ? "AdminDashboard" : "Dashboard",
-                            params: { userData }
-                        }]
-                    });
-                    return;
-                }
-            }
-    
-            // If no user data found, require fresh OTP login
-            Alert.alert(
-                "Session Expired",
-                "Couldn't retrieve your account. Please sign in with OTP.",
-                [{ text: "OK", onPress: () => {
-                    clearUserSession();
-                    setShowPinScreen(false);
-                }}]
-            );
-    
-        } catch (error) {
-            console.error("PIN Verification Error:", error);
-            Alert.alert(
-                "Error",
-                error.message || "An error occurred during login. Please try again."
-            );
-        } finally {
-            setLoading(false);
-        }
-    };
-    
-    const clearUserSession = async () => {
-        try {
-            await signOut(getAuth());
-            await Promise.all([
-                SecureStore.deleteItemAsync('userPin'),
-                SecureStore.deleteItemAsync('userUid'),
-                SecureStore.deleteItemAsync('userPhone'),
-                SecureStore.deleteItemAsync('lastLogin'),
-                SecureStore.deleteItemAsync('firebaseAuthToken')
-            ]);
-        } catch (signOutError) {
-            console.log("Sign-out error:", signOutError);
-        }
-    };
-    
-    const handleWrongPinAttempt = async () => {
-        const attemptsLeft = MAX_PIN_ATTEMPTS - pinAttempts - 1;
-        
-        startShake();
-        
-        if (attemptsLeft <= 0) {
-            Alert.alert(
-                "Security Lock",
-                "Too many failed attempts. Please sign in with OTP.",
-                [{
-                    text: "OK",
-                    onPress: async () => {
-                        await clearUserSession();
-                        setShowPinScreen(false);
-                        setPinAttempts(0);
-                    }
-                }]
-            );
-        } else {
-            Alert.alert(
-                "Incorrect PIN",
-                `You have ${attemptsLeft} attempt${attemptsLeft > 1 ? 's' : ''} remaining`
-            );
-            setPinAttempts(prev => prev + 1);
-        }
-        setPin("");
-    };
 
+    // Handle forgot PIN flow
     const handleForgotPin = () => {
         Alert.alert(
             "Reset PIN",
@@ -602,7 +784,7 @@ const checkIfFirstLaunch = async () => {
                 {
                     text: "Cancel",
                     style: "cancel",
-                    onPress: () => {} // Just dismiss the alert
+                    onPress: () => {}
                 },
                 {
                     text: "Continue",
@@ -615,31 +797,13 @@ const checkIfFirstLaunch = async () => {
             ]
         );
     };
-    const handleChangeNumber = () => {
-        Alert.alert(
-            "Change Phone Number",
-            "You'll need to verify a new phone number.",
-            [
-                {
-                    text: "Cancel",
-                    style: "cancel",
-                    onPress: () => {} // Just dismiss the alert
-                },
-                {
-                    text: "Continue",
-                    onPress: () => {
-                        setIsChangingNumber(true);
-                        setShowPinScreen(false);
-                    }
-                }
-            ]
-        );
-    };
 
+    // Skip login (for demo purposes)
     const skipLogin = () => {
         navigation.navigate("Dashboard");
     };
 
+    // Render phone input screen
     const renderPhoneInput = () => (
         <>
             <TextInput
@@ -659,7 +823,7 @@ const checkIfFirstLaunch = async () => {
                 outlineColor="#003580"
                 activeOutlineColor="#002B5C"
                 placeholder="912 345 6789"
-                maxLength={12} // For formatted number (3 + 3 + 4 digits with spaces)
+                maxLength={12}
                 disabled={loading}
             />
 
@@ -675,6 +839,7 @@ const checkIfFirstLaunch = async () => {
         </>
     );
 
+    // Render OTP input screen
     const renderOTPInput = () => (
         <>
             <Text style={styles.otpSentText}>
@@ -714,22 +879,21 @@ const checkIfFirstLaunch = async () => {
                 onPress={() => {
                     setConfirm(null);
                     setCode("");
-                    // Return to appropriate screen based on flow
-                    if (isResettingPin || isChangingNumber) {
+                    if (isResettingPin) {
                         setShowPinScreen(true);
                         setIsResettingPin(false);
-                        setIsChangingNumber(false);
                     }
                 }}
                 disabled={loading}
             >
                 <Text style={[styles.changeNumberLink, loading && styles.disabledLink]}>
-                    {isResettingPin || isChangingNumber ? "Go Back" : "Change phone number"}
+                    {isResettingPin ? "Go Back" : "Change phone number"}
                 </Text>
             </TouchableOpacity>
         </>
     );
 
+    // Render PIN input screen
     const renderPinInput = () => (
         <View style={styles.pinScreenContainer}>
             <Text style={styles.pinTitle}>Enter your {PIN_LENGTH}-digit PIN</Text>
@@ -745,6 +909,7 @@ const checkIfFirstLaunch = async () => {
               />
             </Animated.View>
     
+    
             <View style={styles.pinActionsContainer}>
                 <Button 
                     mode="text" 
@@ -755,15 +920,17 @@ const checkIfFirstLaunch = async () => {
                 >
                     Forgot PIN?
                 </Button>
-                
                 <Button 
                     mode="text" 
-                    onPress={handleChangeNumber}
+                    onPress={() => {
+                        setPin("");
+                        setShowPinScreen(false);
+                    }}
                     style={styles.changeNumberButton}
                     labelStyle={styles.pinActionText}
                     disabled={loading}
                 >
-                    change Number?
+                    Change number
                 </Button>
             </View>
     
@@ -775,10 +942,19 @@ const checkIfFirstLaunch = async () => {
         </View>
     );
 
+    // Render set PIN screen
     const renderSetPinScreen = () => (
         <View style={styles.pinScreenContainer}>
-            <Text style={styles.pinTitle}>Set your {PIN_LENGTH}-digit PIN</Text>
-            <Text style={styles.pinSubtitle}>This PIN will be used for quick login on this device</Text>
+            <Text style={styles.pinTitle}>
+                {pinStep === 1 
+                    ? `Set your ${PIN_LENGTH}-digit PIN`
+                    : `Confirm your ${PIN_LENGTH}-digit PIN`}
+            </Text>
+            <Text style={styles.pinSubtitle}>
+                {pinStep === 1
+                    ? "This PIN will be used for quick login on this device"
+                    : "Re-enter your PIN to confirm"}
+            </Text>
             
             <PinInput 
               pin={pin} 
@@ -796,20 +972,28 @@ const checkIfFirstLaunch = async () => {
     
             <TouchableOpacity 
                 onPress={() => {
-                    setShowSetPinScreen(false);
-                    if (isResettingPin || isChangingNumber) {
-                        setShowPinScreen(true);
+                    if (pinStep === 2) {
+                        setPinStep(1);
+                        setPin("");
+                    } else {
+                        setShowSetPinScreen(false);
+                        if (isResettingPin) {
+                            setShowPinScreen(true);
+                        }
                     }
                 }}
                 disabled={loading}
                 style={styles.backButton}
             >
                 <MaterialCommunityIcons name="arrow-left" size={24} color="#003580" />
-                <Text style={styles.backButtonText}>Go Back</Text>
+                <Text style={styles.backButtonText}>
+                    {pinStep === 2 ? "Re-enter PIN" : "Go Back"}
+                </Text>
             </TouchableOpacity>
         </View>
     );
 
+    // Main render function
     return (
         <View style={styles.container}>
             <Image source={require("../../assets/cong.png")} style={styles.logo} />
@@ -850,192 +1034,3 @@ const checkIfFirstLaunch = async () => {
         </View>
     );
 }
-
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        padding: 20,
-        backgroundColor: "#fff",
-    },
-    pinScreenContainer: {
-        width: '100%',
-        alignItems: 'center',
-    },
-    logo: {
-        width: 100,
-        height: 100,
-        marginBottom: 20,
-    },
-    title: {
-        fontSize: 22,
-        fontWeight: "bold",
-        marginBottom: 10,
-        textAlign: "center",
-        color: "#003580",
-    },
-    pinTitle: {
-        fontSize: 18,
-        fontWeight: "bold",
-        marginBottom: 5,
-        textAlign: "center",
-        color: "#003580",
-    },
-    phoneNumberText: {
-        fontSize: 16,
-        color: "#003580",
-        textAlign: "center",
-        marginBottom: 30,
-    },
-    otpSentText: {
-        fontSize: 14,
-        color: "#666",
-        textAlign: "center",
-        marginBottom: 10,
-    },
-    pinSubtitle: {
-        fontSize: 14,
-        color: "#666",
-        textAlign: "center",
-        marginBottom: 30,
-    },
-    description: {
-        fontSize: 14,
-        color: "#666",
-        textAlign: "center",
-        marginBottom: 10,
-    },
-    input: {
-        width: "100%",
-        marginBottom: 20,
-    },
-    button: {
-        width: "100%",
-        paddingVertical: 8,
-        backgroundColor: "#003580",
-    },
-    buttonDisabled: {
-        backgroundColor: "#ccc",
-    },
-    buttonText: {
-        color: "#fff",
-        fontSize: 16,
-    },
-    skipButton: {
-        marginTop: 10,
-    },
-    pinContainer: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        marginBottom: 40,
-    },
-    pinCircle: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: '#003580',
-        marginHorizontal: 8,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    pinCircleFilled: {
-        backgroundColor: '#003580',
-    },
-    pinCircleActive: {
-        borderWidth: 2,
-        borderColor: '#002B5C',
-    },
-    pinCircleError: {
-        borderColor: '#FF3B30',
-    },
-    pinCircleLoading: {
-        borderColor: '#ccc',
-    },
-    pinDot: {
-        width: 10,
-        height: 10,
-        borderRadius: 5,
-        backgroundColor: '#fff',
-    },
-    pinActionsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        width: '100%',
-        marginBottom: 30,
-    },
-    forgotPinButton: {
-        paddingHorizontal: 0,
-    },
-    changeNumberButton: {
-        paddingHorizontal: 0,
-    },
-    pinActionText: {
-        color: "#003580",
-        fontSize: 14,
-    },
-    changeNumberLink: {
-        color: "#003580",
-        textAlign: 'center',
-        marginTop: 15,
-        textDecorationLine: 'underline',
-    },
-    disabledLink: {
-        color: '#ccc',
-    },
-    skipButtonText: {
-        color: "#003580",
-    },
-    footerText: {
-        marginTop: 20,
-        fontSize: 12,
-        color: "#666",
-    },
-    link: {
-        color: "#003580",
-        textDecorationLine: "underline",
-    },
-    numberPad: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'center',
-        width: '100%',
-        maxWidth: 300,
-    },
-    numberButton: {
-        width: 80,
-        height: 50,
-        borderRadius: 35,
-        justifyContent: 'center',
-        alignItems: 'center',
-        margin: 10,
-        backgroundColor: '#f5f5f5',
-    },
-    emptyButton: {
-        backgroundColor: 'transparent',
-    },
-    backspaceButton: {
-        backgroundColor: '#f5f5f5',
-    },
-    disabledButton: {
-        backgroundColor: '#f9f9f9',
-    },
-    numberText: {
-        fontSize: 24,
-        color: '#003580',
-    },
-    disabledText: {
-        color: '#ccc',
-    },
-    backButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 20,
-    },
-    backButtonText: {
-        color: "#003580",
-        marginLeft: 5,
-        fontSize: 16,
-    },
-});

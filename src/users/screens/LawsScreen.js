@@ -29,6 +29,7 @@ import { Feather, MaterialIcons, AntDesign } from "@expo/vector-icons";
 
 const { width } = Dimensions.get("window");
 const HEADER_HEIGHT = 150;
+const TAB_UNDERLINE_WIDTH = 40;
 
 export default function LawsScreen() {
   const colorScheme = useColorScheme();
@@ -44,9 +45,12 @@ export default function LawsScreen() {
   const [savedItems, setSavedItems] = useState({});
   const [retryCount, setRetryCount] = useState(0);
 
+  // Refs
+  const scrollViewRef = useRef(null);
+  const flatListRefs = useRef({});
+
   // Animated values
   const scrollX = useRef(new Animated.Value(0)).current;
-  const scrollViewRef = useRef(null);
   const headerHeight = useRef(new Animated.Value(HEADER_HEIGHT)).current;
   const tabUnderlineAnim = useRef(new Animated.Value(0)).current;
 
@@ -92,66 +96,55 @@ export default function LawsScreen() {
     elevation: 8,
   };
 
-  // Header title opacity animation
-  const headerTitleOpacity = scrollX.interpolate({
-    inputRange: [0, width / 2, width],
-    outputRange: [1, 0.5, 1],
-    extrapolate: "clamp",
-  });
-
   // Tab underline animation
   const tabUnderlinePosition = tabUnderlineAnim.interpolate({
     inputRange: [0, 1, 2],
-    outputRange: [width * 0.1, width * 0.4, width * 0.7],
-    extrapolate: "clamp",
+    outputRange: sectionKeys.map((_, index) => {
+      const tabWidth = width / sectionKeys.length;
+      return tabWidth * index + (tabWidth - TAB_UNDERLINE_WIDTH) / 2;
+    }),
   });
 
-  // Handle scroll events
-  const handleScroll = Animated.event(
-    [{ nativeEvent: { contentOffset: { x: scrollX } } }], // Added missing closing brace
-    {
-      useNativeDriver: false,
-      listener: (event) => {
-        const offsetX = event.nativeEvent.contentOffset.x;
-        const activeIndex = Math.round(offsetX / width);
-        setSelectedSection(sectionKeys[activeIndex]);
-        
-        // Animate the tab underline
-        Animated.spring(tabUnderlineAnim, {
-          toValue: activeIndex,
-          useNativeDriver: false,
-          speed: 20,
-          bounciness: 10,
-        }).start();
-      },
-    }
-);
+  // Handle scroll events with debouncing
+  const handleScroll = useRef(
+    Animated.event(
+      [{ nativeEvent: { contentOffset: { x: scrollX } }}],
+      {
+        useNativeDriver: false,
+        listener: (event) => {
+          const offsetX = event.nativeEvent.contentOffset.x;
+          const activeIndex = Math.round(offsetX / width);
+          setSelectedSection(sectionKeys[activeIndex]);
+        },
+      }
+    )
+  ).current;
 
-  const handleTabPress = (section) => {
+  // Handle tab press with smooth animations
+  const handleTabPress = useCallback((section) => {
     const index = sectionKeys.indexOf(section);
     setSelectedSection(section);
     
-    // Animate both the scroll and the tab underline
     Animated.parallel([
       Animated.spring(tabUnderlineAnim, {
         toValue: index,
-        useNativeDriver: false,
-        speed: 20,
-        bounciness: 10,
+        useNativeDriver: true,
+        tension: 30,
+        friction: 8,
       }),
       Animated.spring(scrollX, {
         toValue: index * width,
-        useNativeDriver: false,
-        speed: 20,
-        bounciness: 10,
+        useNativeDriver: true,
+        tension: 30,
+        friction: 8,
       }),
     ]).start();
     
     scrollViewRef.current?.scrollTo({ x: index * width, animated: true });
-  };
+  }, [sectionKeys]);
 
   // Simulate data fetching
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     return new Promise((resolve, reject) => {
       setTimeout(() => {
         if (Math.random() < 0.2) {
@@ -161,10 +154,20 @@ export default function LawsScreen() {
         }
       }, 1500);
     });
-  };
+  }, []);
+
+  // Load saved items from storage
+  const loadSavedItems = useCallback(async () => {
+    try {
+      const jsonValue = await AsyncStorage.getItem("savedItems");
+      return jsonValue != null ? setSavedItems(JSON.parse(jsonValue)) : null;
+    } catch (e) {
+      Alert.alert("Loading Failed", "There was an error loading the saved items.");
+    }
+  }, []);
 
   // Initial data loading
-  const initialLoad = async () => {
+  const initialLoad = useCallback(async () => {
     try {
       setLoading(true);
       await fetchData();
@@ -175,7 +178,7 @@ export default function LawsScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchData, loadSavedItems]);
 
   // Refresh control
   const onRefresh = useCallback(() => {
@@ -191,14 +194,14 @@ export default function LawsScreen() {
       }
     };
     refreshData();
-  }, []);
+  }, [fetchData]);
 
   useEffect(() => {
     initialLoad();
-  }, [retryCount]);
+  }, [retryCount, initialLoad]);
 
   // Handle sharing
-  const handleShare = async (message) => {
+  const handleShare = useCallback(async (message) => {
     try {
       const result = await Share.share({
         message: message,
@@ -215,10 +218,10 @@ export default function LawsScreen() {
     } catch (error) {
       Alert.alert("Sharing failed", error.message);
     }
-  };
+  }, []);
 
   // Save item to storage
-  const saveItem = async (key, item) => {
+  const saveItem = useCallback(async (key, item) => {
     try {
       const newItem = { ...savedItems, [key]: item };
       const jsonValue = JSON.stringify(newItem);
@@ -228,35 +231,270 @@ export default function LawsScreen() {
     } catch (e) {
       Alert.alert("Saving Failed", "There was an error saving the item.");
     }
-  };
-
-  // Load saved items
-  const loadSavedItems = async () => {
-    try {
-      const jsonValue = await AsyncStorage.getItem("savedItems");
-      return jsonValue != null ? setSavedItems(JSON.parse(jsonValue)) : null;
-    } catch (e) {
-      Alert.alert("Loading Failed", "There was an error loading the saved items.");
-    }
-  };
+  }, [savedItems]);
 
   // Check if item is saved
-  const isItemSaved = (key) => {
+  const isItemSaved = useCallback((key) => {
     return !!savedItems[key];
-  };
+  }, [savedItems]);
 
   // Retry function
-  const handleRetry = () => {
+  const handleRetry = useCallback(() => {
     setRetryCount((prevCount) => prevCount + 1);
     setError(null);
-  };
+  }, []);
 
   // Handle view more action for each section
-  const handleViewMore = (section) => {
+  const handleViewMore = useCallback((section) => {
     Linking.openURL(sections[section].link).catch((err) =>
       Alert.alert("Error", "Could not open the link. Please try again later.")
     );
-  };
+  }, [sections]);
+
+  // Render item function for FlatList
+  const renderItem = useCallback(({ item, section }) => (
+    <Card
+      style={[
+        styles.card,
+        { backgroundColor: dynamicStyles.cardBackgroundColor },
+      ]}
+    >
+      <Card.Content>
+        {section === "Committee Membership" ? (
+          <>
+            <Text
+              style={[
+                styles.committeeTitle,
+                { color: dynamicStyles.cardTextColor },
+              ]}
+            >
+              {item.committee}
+            </Text>
+            <View style={styles.detailRow}>
+              <Text
+                style={[
+                  styles.detailLabel,
+                  { color: dynamicStyles.cardTextColor },
+                ]}
+              >
+                Position:
+              </Text>
+              <Text
+                style={[
+                  styles.detailValue,
+                  { color: dynamicStyles.cardTextColor },
+                ]}
+              >
+                {item.position || "N/A"}
+              </Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text
+                style={[
+                  styles.detailLabel,
+                  { color: dynamicStyles.cardTextColor },
+                ]}
+              >
+                Journal Number:
+              </Text>
+              <Text
+                style={[
+                  styles.detailValue,
+                  { color: dynamicStyles.cardTextColor },
+                ]}
+              >
+                {item.journalNumber || "N/A"}
+              </Text>
+            </View>
+            {item.additionalInfo && (
+              <View style={styles.detailRow}>
+                <Text
+                  style={[
+                    styles.detailLabel,
+                    { color: dynamicStyles.cardTextColor },
+                  ]}
+                >
+                  Additional Info:
+                </Text>
+                <Text
+                  style={[
+                    styles.detailValue,
+                    { color: dynamicStyles.cardTextColor },
+                  ]}
+                >
+                  {item.additionalInfo}
+                </Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <>
+            <Text
+              style={[
+                styles.lawTitle,
+                { color: dynamicStyles.cardTextColor },
+              ]}
+            >
+              {item.title}
+            </Text>
+            <View style={styles.detailRow}>
+              <Text
+                style={[
+                  styles.detailLabel,
+                  { color: dynamicStyles.cardTextColor },
+                ]}
+              >
+                Summary:
+              </Text>
+              <Text
+                style={[
+                  styles.detailValue,
+                  { color: dynamicStyles.cardTextColor },
+                ]}
+              >
+                {item.summary || "No summary available."}
+              </Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text
+                style={[
+                  styles.detailLabel,
+                  { color: dynamicStyles.cardTextColor },
+                ]}
+              >
+                Significance:
+              </Text>
+              <Text
+                style={[
+                  styles.detailValue,
+                  { color: dynamicStyles.cardTextColor },
+                ]}
+              >
+                {item.significance || "N/A"}
+              </Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text
+                style={[
+                  styles.detailLabel,
+                  { color: dynamicStyles.cardTextColor },
+                ]}
+              >
+                Date Filed:
+              </Text>
+              <Text
+                style={[
+                  styles.detailValue,
+                  { color: dynamicStyles.cardTextColor },
+                ]}
+              >
+                {item.dateFiled || "N/A"}
+              </Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text
+                style={[
+                  styles.detailLabel,
+                  { color: dynamicStyles.cardTextColor },
+                ]}
+              >
+                Principal Author/s:
+              </Text>
+              <Text
+                style={[
+                  styles.detailValue,
+                  { color: dynamicStyles.cardTextColor },
+                ]}
+              >
+                {Array.isArray(item.principalAuthors) &&
+                item.principalAuthors.length > 0
+                  ? item.principalAuthors.join(", ")
+                  : "N/A"}
+              </Text>
+            </View>
+            {item.amendments && (
+              <View style={styles.detailRow}>
+                <Text
+                  style={[
+                    styles.detailLabel,
+                    { color: dynamicStyles.cardTextColor },
+                  ]}
+                >
+                  Amendments:
+                </Text>
+                <Text
+                  style={[
+                    styles.detailValue,
+                    { color: dynamicStyles.cardTextColor },
+                  ]}
+                >
+                  {item.amendments}
+                </Text>
+              </View>
+            )}
+          </>
+        )}
+      </Card.Content>
+      <Card.Actions style={styles.cardActions}>
+        <TouchableOpacity
+          style={[
+            styles.actionButton,
+            {
+              backgroundColor: isDarkMode
+                ? "rgba(74, 144, 226, 0.2)"
+                : "rgba(0, 51, 102, 0.1)",
+            },
+          ]}
+          onPress={() => handleShare(item.title)}
+        >
+          <Feather
+            name="share-2"
+            size={18}
+            color={dynamicStyles.actionButtonColor}
+          />
+          <Text
+            style={[
+              styles.actionButtonText,
+              { color: dynamicStyles.actionButtonColor },
+            ]}
+          >
+            Share
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.actionButton,
+            {
+              backgroundColor: isDarkMode
+                ? "rgba(74, 144, 226, 0.2)"
+                : "rgba(0, 51, 102, 0.1)",
+            },
+          ]}
+          onPress={() => saveItem(item.title, item)}
+          disabled={isItemSaved(item.title)}
+        >
+          <MaterialIcons
+            name={
+              isItemSaved(item.title)
+                ? "bookmark"
+                : "bookmark-outline"
+            }
+            size={20}
+            color={dynamicStyles.actionButtonColor}
+          />
+          <Text
+            style={[
+              styles.actionButtonText,
+              { color: dynamicStyles.actionButtonColor },
+            ]}
+          >
+            {isItemSaved(item.title) ? "Saved" : "Save"}
+          </Text>
+        </TouchableOpacity>
+      </Card.Actions>
+    </Card>
+  ), [dynamicStyles, handleShare, isDarkMode, isItemSaved, saveItem]);
 
   if (loading) {
     return (
@@ -326,25 +564,17 @@ export default function LawsScreen() {
               color="#ffffff"
               style={styles.headerIcon}
             />
-            <Animated.Text
-              style={[
-                styles.headerTitle,
-                { opacity: headerTitleOpacity, color: "#ffffff" },
-              ]}
-            >
+            <Text style={[styles.headerTitle, { color: "#ffffff" }]}>
               Laws & Legislation
-            </Animated.Text>
+            </Text>
           </View>
 
           {/* Section Indicators */}
           <View style={styles.tabContainer}>
-            {sectionKeys.map((section, index) => (
+            {sectionKeys.map((section) => (
               <TouchableOpacity
                 key={section}
-                style={[
-                  styles.tabButton,
-                  selectedSection === section && styles.activeTabButton,
-                ]}
+                style={styles.tabButton}
                 onPress={() => handleTabPress(section)}
                 activeOpacity={0.7}
               >
@@ -358,20 +588,12 @@ export default function LawsScreen() {
                 </Text>
               </TouchableOpacity>
             ))}
-            <Animated.View
-              style={[
-                styles.tabUnderline,
-                {
-                  left: tabUnderlinePosition,
-                  backgroundColor: dynamicStyles.actionButtonColor,
-                },
-              ]}
-            />
+        
           </View>
         </Animated.View>
 
         {/* Scrollable content */}
-        <ScrollView
+        <Animated.ScrollView
           ref={scrollViewRef}
           horizontal
           pagingEnabled
@@ -384,6 +606,7 @@ export default function LawsScreen() {
             setSelectedSection(sectionKeys[index]);
           }}
           style={styles.contentScrollView}
+          contentContainerStyle={styles.contentContainer}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -397,7 +620,6 @@ export default function LawsScreen() {
             />
           }
         >
-          {/* Mapping through sections */}
           {sectionKeys.map((section) => (
             <View key={section} style={styles.page}>
               <View style={styles.sectionHeader}>
@@ -429,255 +651,19 @@ export default function LawsScreen() {
                 </TouchableOpacity>
               </View>
               <FlatList
+                ref={(ref) => (flatListRefs.current[section] = ref)}
                 data={sections[section].data}
-                keyExtractor={(item, index) => index.toString()}
-                renderItem={({ item }) => (
-                  <Card
-                    style={[
-                      styles.card,
-                      { backgroundColor: dynamicStyles.cardBackgroundColor },
-                    ]}
-                  >
-                    <Card.Content>
-                      {section === "Committee Membership" ? (
-                        <>
-                          <Text
-                            style={[
-                              styles.committeeTitle,
-                              { color: dynamicStyles.cardTextColor },
-                            ]}
-                          >
-                            {item.committee}
-                          </Text>
-                          <View style={styles.detailRow}>
-                            <Text
-                              style={[
-                                styles.detailLabel,
-                                { color: dynamicStyles.cardTextColor },
-                              ]}
-                            >
-                              Position:
-                            </Text>
-                            <Text
-                              style={[
-                                styles.detailValue,
-                                { color: dynamicStyles.cardTextColor },
-                              ]}
-                            >
-                              {item.position || "N/A"}
-                            </Text>
-                          </View>
-                          <View style={styles.detailRow}>
-                            <Text
-                              style={[
-                                styles.detailLabel,
-                                { color: dynamicStyles.cardTextColor },
-                              ]}
-                            >
-                              Journal Number:
-                            </Text>
-                            <Text
-                              style={[
-                                styles.detailValue,
-                                { color: dynamicStyles.cardTextColor },
-                              ]}
-                            >
-                              {item.journalNumber || "N/A"}
-                            </Text>
-                          </View>
-                          {item.additionalInfo && (
-                            <View style={styles.detailRow}>
-                              <Text
-                                style={[
-                                  styles.detailLabel,
-                                  { color: dynamicStyles.cardTextColor },
-                                ]}
-                              >
-                                Additional Info:
-                              </Text>
-                              <Text
-                                style={[
-                                  styles.detailValue,
-                                  { color: dynamicStyles.cardTextColor },
-                                ]}
-                              >
-                                {item.additionalInfo}
-                              </Text>
-                            </View>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <Text
-                            style={[
-                              styles.lawTitle,
-                              { color: dynamicStyles.cardTextColor },
-                            ]}
-                          >
-                            {item.title}
-                          </Text>
-                          <View style={styles.detailRow}>
-                            <Text
-                              style={[
-                                styles.detailLabel,
-                                { color: dynamicStyles.cardTextColor },
-                              ]}
-                            >
-                              Summary:
-                            </Text>
-                            <Text
-                              style={[
-                                styles.detailValue,
-                                { color: dynamicStyles.cardTextColor },
-                              ]}
-                            >
-                              {item.summary || "No summary available."}
-                            </Text>
-                          </View>
-                          <View style={styles.detailRow}>
-                            <Text
-                              style={[
-                                styles.detailLabel,
-                                { color: dynamicStyles.cardTextColor },
-                              ]}
-                            >
-                              Significance:
-                            </Text>
-                            <Text
-                              style={[
-                                styles.detailValue,
-                                { color: dynamicStyles.cardTextColor },
-                              ]}
-                            >
-                              {item.significance || "N/A"}
-                            </Text>
-                          </View>
-                          <View style={styles.detailRow}>
-                            <Text
-                              style={[
-                                styles.detailLabel,
-                                { color: dynamicStyles.cardTextColor },
-                              ]}
-                            >
-                              Date Filed:
-                            </Text>
-                            <Text
-                              style={[
-                                styles.detailValue,
-                                { color: dynamicStyles.cardTextColor },
-                              ]}
-                            >
-                              {item.dateFiled || "N/A"}
-                            </Text>
-                          </View>
-                          <View style={styles.detailRow}>
-                            <Text
-                              style={[
-                                styles.detailLabel,
-                                { color: dynamicStyles.cardTextColor },
-                              ]}
-                            >
-                              Principal Author/s:
-                            </Text>
-                            <Text
-                              style={[
-                                styles.detailValue,
-                                { color: dynamicStyles.cardTextColor },
-                              ]}
-                            >
-                              {Array.isArray(item.principalAuthors) &&
-                              item.principalAuthors.length > 0
-                                ? item.principalAuthors.join(", ")
-                                : "N/A"}
-                            </Text>
-                          </View>
-                          {item.amendments && (
-                            <View style={styles.detailRow}>
-                              <Text
-                                style={[
-                                  styles.detailLabel,
-                                  { color: dynamicStyles.cardTextColor },
-                                ]}
-                              >
-                                Amendments:
-                              </Text>
-                              <Text
-                                style={[
-                                  styles.detailValue,
-                                  { color: dynamicStyles.cardTextColor },
-                                ]}
-                              >
-                                {item.amendments}
-                              </Text>
-                            </View>
-                          )}
-                        </>
-                      )}
-                    </Card.Content>
-                    <Card.Actions style={styles.cardActions}>
-                      <TouchableOpacity
-                        style={[
-                          styles.actionButton,
-                          {
-                            backgroundColor: isDarkMode
-                              ? "rgba(74, 144, 226, 0.2)"
-                              : "rgba(0, 51, 102, 0.1)",
-                          },
-                        ]}
-                        onPress={() => handleShare(item.title)}
-                      >
-                        <Feather
-                          name="share-2"
-                          size={18}
-                          color={dynamicStyles.actionButtonColor}
-                        />
-                        <Text
-                          style={[
-                            styles.actionButtonText,
-                            { color: dynamicStyles.actionButtonColor },
-                          ]}
-                        >
-                          Share
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.actionButton,
-                          {
-                            backgroundColor: isDarkMode
-                              ? "rgba(74, 144, 226, 0.2)"
-                              : "rgba(0, 51, 102, 0.1)",
-                          },
-                        ]}
-                        onPress={() => saveItem(item.title, item)}
-                        disabled={isItemSaved(item.title)}
-                      >
-                        <MaterialIcons
-                          name={
-                            isItemSaved(item.title)
-                              ? "bookmark"
-                              : "bookmark-outline"
-                          }
-                          size={20}
-                          color={dynamicStyles.actionButtonColor}
-                        />
-                        <Text
-                          style={[
-                            styles.actionButtonText,
-                            { color: dynamicStyles.actionButtonColor },
-                          ]}
-                        >
-                          {isItemSaved(item.title) ? "Saved" : "Save"}
-                        </Text>
-                      </TouchableOpacity>
-                    </Card.Actions>
-                  </Card>
-                )}
+                keyExtractor={(item, index) => `${section}-${index}`}
+                renderItem={({ item }) => renderItem({ item, section })}
+                initialNumToRender={5}
+                maxToRenderPerBatch={5}
+                windowSize={5}
+                updateCellsBatchingPeriod={50}
+                removeClippedSubviews={true}
               />
             </View>
           ))}
-        </ScrollView>
+        </Animated.ScrollView>
       </View>
     </SafeAreaView>
   );
@@ -712,18 +698,12 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: "row",
-    justifyContent: "center",
-    paddingHorizontal: 10,
+    justifyContent: "space-around",
+    width: "100%",
     position: 'relative',
   },
   tabButton: {
-    paddingHorizontal: 15,
     paddingVertical: 8,
-    marginHorizontal: 5,
-    borderRadius: 20,
-  },
-  activeTabButton: {
-    // Removed the background color since we're using an underline now
   },
   tabText: {
     color: "rgba(255, 255, 255, 0.7)",
@@ -737,12 +717,15 @@ const styles = StyleSheet.create({
   tabUnderline: {
     position: 'absolute',
     bottom: 0,
-    width: 40,
+    width: TAB_UNDERLINE_WIDTH,
     height: 3,
     borderRadius: 2,
   },
   contentScrollView: {
     flex: 1,
+  },
+  contentContainer: {
+    flexGrow: 1,
   },
   page: {
     width: width,

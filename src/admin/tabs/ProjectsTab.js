@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
     View, 
     Text, 
@@ -8,152 +8,172 @@ import {
     ActivityIndicator, 
     RefreshControl,
     Alert,
-    Image
+    Animated
 } from 'react-native';
-import { FontAwesome5 } from "@expo/vector-icons";
-import firestore from '@react-native-firebase/firestore';
+import { FontAwesome5, AntDesign } from "@expo/vector-icons";
+import { useNavigation } from '@react-navigation/native';
 
-const ProjectsTab = ({ navigation }) => {
+// Import components and utilities
+import ProjectCard from './projectcomps/ProjectCard';
+import CreateProjectModal from './projectcomps/CreateProjectModal';
+import EditProjectModal from './projectcomps/EditProjectModal';
+import { fetchProjects, setupProjectsListener } from './projectcomps/projectsService';
+import { formatCurrency, getStatusColor } from './projectcomps/projectsUtils';
+
+const ProjectsTab = () => {
+    const navigation = useNavigation();
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [modalVisible, setModalVisible] = useState(false);
+    const [editModalVisible, setEditModalVisible] = useState(false);
+    const [currentProject, setCurrentProject] = useState(null);
+    
+    // Animation values
+    const slideAnim = useRef(new Animated.Value(0)).current;
+    const editSlideAnim = useRef(new Animated.Value(0)).current;
 
-    const fetchProjects = async () => {
+    const handleRefresh = useCallback(async () => {
         try {
-            setLoading(true);
-            const querySnapshot = await firestore()
-                .collection("projects")
-                .orderBy("createdAt", "desc")
-                .get();
-    
-            const data = querySnapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                createdAt: doc.data().createdAt?.toDate() || new Date()
-            }));
-    
+            setRefreshing(true);
+            const data = await fetchProjects();
             setProjects(data);
         } catch (error) {
             console.error("Error fetching projects:", error);
             Alert.alert("Error", "Failed to load projects");
         } finally {
-            setLoading(false);
             setRefreshing(false);
         }
-    };
-    
+    }, []);
+
+    // Animation effects
     useEffect(() => {
-        const unsubscribe = firestore()
-            .collection("projects")
-            .orderBy("createdAt", "desc")
-            .onSnapshot((snapshot) => {
-                const updatedData = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    createdAt: doc.data().createdAt?.toDate() || new Date()
-                }));
-                setProjects(updatedData);
-            });
-    
+        if (modalVisible) {
+            Animated.timing(slideAnim, {
+                toValue: 1,
+                duration: 300,
+                useNativeDriver: true,
+            }).start();
+        } else {
+            Animated.timing(slideAnim, {
+                toValue: 0,
+                duration: 300,
+                useNativeDriver: true,
+            }).start();
+        }
+    }, [modalVisible]);
+
+    useEffect(() => {
+        if (editModalVisible) {
+            Animated.timing(editSlideAnim, {
+                toValue: 1,
+                duration: 300,
+                useNativeDriver: true,
+            }).start();
+        } else {
+            Animated.timing(editSlideAnim, {
+                toValue: 0,
+                duration: 300,
+                useNativeDriver: true,
+            }).start();
+        }
+    }, [editModalVisible]);
+
+    useEffect(() => {
+        const loadProjects = async () => {
+            try {
+                setLoading(true);
+                const data = await fetchProjects();
+                setProjects(data);
+            } catch (error) {
+                console.error("Error fetching projects:", error);
+                Alert.alert("Error", "Failed to load projects");
+            } finally {
+                setLoading(false);
+            }
+        };
+        
+        loadProjects();
+        
+        // Setup real-time listener
+        const unsubscribe = setupProjectsListener((updatedProjects) => {
+            setProjects(updatedProjects);
+        });
+        
         return () => unsubscribe();
     }, []);
-    
-    const onRefresh = () => {
-        setRefreshing(true);
-        fetchProjects();
-    };
 
-    const formatDate = (date) => {
-        return date.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-        });
-    };
+    const openEditModal = useCallback((project) => {
+        setCurrentProject(project);
+        setEditModalVisible(true);
+    }, []);
 
-    const ProjectCard = ({ project, onPress }) => (
-        <TouchableOpacity style={styles.projectCard} onPress={onPress}>
-            <View style={styles.projectHeader}>
-                <FontAwesome5 
-                    name="project-diagram" 
-                    size={20} 
-                    color={project.status === 'active' ? '#4CAF50' : '#9E9E9E'} 
-                />
-                <Text style={styles.projectTitle}>{project.title}</Text>
-                <View style={[
-                    styles.statusBadge,  // Changed from statusBadge to statusBadge
-                    { 
-                        backgroundColor: project.status === 'active' ? '#E8F5E9' : '#F5F5F5',
-                        borderColor: project.status === 'active' ? '#4CAF50' : '#9E9E9E'
-                    }
-                ]}>
-                    <Text style={[
-                        styles.statusText,
-                        { color: project.status === 'active' ? '#4CAF50' : '#9E9E9E' }
-                    ]}>
-                        {project.status === 'active' ? 'Active' : 'Inactive'}
-                    </Text>
-                </View>
-            </View>
-            
-            <Text style={styles.projectDescription} numberOfLines={2}>
-                {project.description}
-            </Text>
-            
-            <View style={styles.projectFooter}>
-                <Text style={styles.projectDate}>
-                    Created: {formatDate(project.createdAt)}
-                </Text>
-                {project.assignedTo && (
-                    <View style={styles.assignedContainer}>
-                        <Image
-                            source={{ uri: project.assignedTo.photoURL || 'https://via.placeholder.com/30' }}
-                            style={styles.assignedAvatar}
-                        />
-                        <Text style={styles.assignedName}>
-                            {project.assignedTo.displayName || 'Unassigned'}
-                        </Text>
-                    </View>
-                )}
-            </View>
-        </TouchableOpacity>
-    );
+    const closeModals = useCallback(() => {
+        setModalVisible(false);
+        setEditModalVisible(false);
+        setCurrentProject(null);
+    }, []);
 
     return (
         <View style={styles.container}>
+            {/* Create Project Button */}
+            <TouchableOpacity 
+                style={styles.createButton}
+                onPress={() => setModalVisible(true)}
+            >
+                <AntDesign name="plus" size={18} color="#FFF" />
+                <Text style={styles.createButtonText}>Create Project</Text>
+            </TouchableOpacity>
+
             {loading && !refreshing ? (
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#003366" />
-                    <Text style={styles.loadingText}>Loading Projects...</Text>
-                </View>
+                <ActivityIndicator size="large" color="#003366" style={styles.loader} />
             ) : (
                 <FlatList
                     data={projects}
                     keyExtractor={item => item.id}
                     renderItem={({ item }) => (
                         <ProjectCard 
-                            project={item}
-                            onPress={() => navigation.navigate('ProjectDetail', { id: item.id })}
+                            project={item} 
+                            navigation={navigation} 
+                            onEdit={openEditModal}
+                            formatCurrency={formatCurrency}
+                            getStatusColor={getStatusColor}
                         />
                     )}
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
                             <FontAwesome5 name="project-diagram" size={50} color="#E0E0E0" />
                             <Text style={styles.emptyText}>No projects found</Text>
-                            <Text style={styles.emptySubtext}>Create a new project to get started</Text>
+                            <Text style={styles.emptySubtext}>Create your first project</Text>
                         </View>
                     }
                     refreshControl={
                         <RefreshControl
                             refreshing={refreshing}
-                            onRefresh={onRefresh}
+                            onRefresh={handleRefresh}
                             colors={["#003366", "#0275d8"]}
                             tintColor="#003366"
                         />
                     }
-                    contentContainerStyle={projects.length === 0 ? styles.emptyListContainer : null}
+                    contentContainerStyle={projects.length === 0 ? styles.emptyListContainer : styles.listContainer}
+                    keyboardShouldPersistTaps="handled"
                 />
             )}
+
+            {/* Create Project Modal */}
+            <CreateProjectModal
+                visible={modalVisible}
+                onClose={closeModals}
+                slideAnim={slideAnim}
+            />
+
+            {/* Edit Project Modal */}
+            <EditProjectModal
+                visible={editModalVisible}
+                onClose={closeModals}
+                project={currentProject}
+                slideAnim={editSlideAnim}
+            />
         </View>
     );
 };
@@ -162,16 +182,31 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#f5f5f5',
-        paddingBottom: 80,
     },
-    loadingContainer: {
+    createButton: {
+        flexDirection: 'row',
+        backgroundColor: '#003366',
+        padding: 15,
+        borderRadius: 8,
+        margin: 15,
+        justifyContent: 'center',
+        alignItems: 'center',
+        elevation: 3,
+    },
+    createButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: 'bold',
+        marginLeft: 10,
+    },
+    loader: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    loadingText: {
-        marginTop: 10,
-        color: '#003366',
+    listContainer: {
+        padding: 15,
+        paddingBottom: 80,
     },
     emptyListContainer: {
         flex: 1,
@@ -190,68 +225,6 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#BDBDBD',
         marginTop: 5,
-    },
-    projectCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 10,
-        padding: 15,
-        marginHorizontal: 15,
-        marginVertical: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 2,
-    },
-    projectHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    projectTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#003366',
-        marginLeft: 10,
-        flex: 1,
-    },
-    statusBadge: {
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 12,
-        borderWidth: 1,
-    },
-    statusText: {
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    projectDescription: {
-        fontSize: 14,
-        color: '#616161',
-        marginBottom: 15,
-    },
-    projectFooter: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    projectDate: {
-        fontSize: 12,
-        color: '#9E9E9E',
-    },
-    assignedContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    assignedAvatar: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        marginRight: 8,
-    },
-    assignedName: {
-        fontSize: 12,
-        color: '#616161',
     },
 });
 

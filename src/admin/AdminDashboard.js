@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { 
     View, 
     Text, 
@@ -9,137 +9,162 @@ import {
     Image,
     RefreshControl,
     ActivityIndicator,
-    Alert
+    Alert,
+    Dimensions,
+    Platform,
+    useWindowDimensions,
+    TextInput,
+    FlatList
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
-import { FontAwesome5, Feather } from "@expo/vector-icons";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { FontAwesome5, Feather, MaterialIcons, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from 'expo-linear-gradient';
-import { getFirestore, collection, query, where, getDocs, onSnapshot, orderBy, limit } from "@react-native-firebase/firestore";
+import { getFirestore, collection, query, where, getDocs, onSnapshot, orderBy, limit, doc, getDoc, setDoc } from "@react-native-firebase/firestore";
 import { getAuth } from "@react-native-firebase/auth";
+import { BarChart, PieChart } from 'react-native-chart-kit';
+import * as Animatable from 'react-native-animatable';
+import BackgroundFetch from "react-native-background-fetch";
+import * as SecureStore from 'expo-secure-store';
 
 // Import tab components
 import ProjectsTab from './tabs/ProjectsTab';
 import ConcernsTab from './tabs/ConcernsTab';
 import AppointmentsTab from './tabs/AppointmentsTab';
 import UpdatesTab from './tabs/UpdatesTab';
+import MedicalApplicationTab from './tabs/MedicalApplicationTab';
+import ProfileTab from './tabs/ProfileTab';
+import StatsTab from './tabs/StatsTab';
+
+// Import utility components
+import Header from './adcomps/Header';
+import StatCard from './adcomps/StatCard';
+import ActivityItem from './adcomps/ActivityItem';
+import AppointmentItem from './adcomps/AppointmentItem';
+import ConcernItem from './adcomps/ConcernItem';
+
+// Import utility functions
+import { 
+    formatTimeAgo, 
+    formatAppointmentDateTime,
+    fetchCollectionCount,
+    fetchRecentActivities,
+    fetchAppointments,
+    fetchConcerns,
+    fetchMedicalAppStats,
+    fetchStatusDistribution
+} from './utils/helpers';
 
 const AdminDashboard = () => {
     const navigation = useNavigation();
     const [refreshing, setRefreshing] = useState(false);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState("dashboard");
+    const { width, height } = useWindowDimensions();
+    const isLandscape = width > height;
+    const isTablet = width >= 768;
+    const [currentUid, setCurrentUid] = useState(null);
     
+    // Admin profile state
+    const [adminProfile, setAdminProfile] = useState({
+        name: 'Admin',
+        position: 'Administrator',
+        avatarUrl: null
+    });
+    const [profileLoading, setProfileLoading] = useState(false);
+
+    // Dashboard stats state
     const [stats, setStats] = useState({
         pendingAppointments: 0,
-        unresolvedConcerns: 0,
-        draftUpdates: 0,
-        activeProjects: 0
+        pendingConcerns: 0,
+        activeProjects: 0,
+        medicalApplications: 0,
+        completedProjects: 0,
+        resolvedConcerns: 0
     });
 
+    // Chart data state
+    const [chartData, setChartData] = useState({
+        labels: ['No Data'],
+        datasets: [{
+            data: [0]
+        }]
+    });
+
+    const [pieData, setPieData] = useState([
+        {
+            name: "Pending",
+            population: 0,
+            color: "#FF6384",
+            legendFontColor: "#7F7F7F",
+            legendFontSize: 12
+        },
+        {
+            name: "In Progress",
+            population: 0,
+            color: "#36A2EB",
+            legendFontColor: "#7F7F7F",
+            legendFontSize: 12
+        },
+        {
+            name: "Completed",
+            population: 0,
+            color: "#4BC0C0",
+            legendFontColor: "#7F7F7F",
+            legendFontSize: 12
+        }
+    ]);
+
+    // Data state
     const [recentActivities, setRecentActivities] = useState([]);
     const [appointments, setAppointments] = useState([]);
+    const [concerns, setConcerns] = useState([]);
+    const [searchQuery, setSearchQuery] = useState('');
     const cache = useRef({
         lastFetch: null,
         data: null
     });
 
-    // Format time as "X mins/hours/days ago"
-    const formatTimeAgo = (date) => {
-        const seconds = Math.floor((new Date() - date) / 1000);
-        
-        let interval = Math.floor(seconds / 31536000);
-        if (interval >= 1) return `${interval} year${interval === 1 ? '' : 's'} ago`;
-        
-        interval = Math.floor(seconds / 2592000);
-        if (interval >= 1) return `${interval} month${interval === 1 ? '' : 's'} ago`;
-        
-        interval = Math.floor(seconds / 86400);
-        if (interval >= 1) return `${interval} day${interval === 1 ? '' : 's'} ago`;
-        
-        interval = Math.floor(seconds / 3600);
-        if (interval >= 1) return `${interval} hour${interval === 1 ? '' : 's'} ago`;
-        
-        interval = Math.floor(seconds / 60);
-        if (interval >= 1) return `${interval} minute${interval === 1 ? '' : 's'} ago`;
-        
-        return "Just now";
-    };
-
-    // Format appointment date and time
-    const formatAppointmentDateTime = (dateString, timeString) => {
+    const fetchAdminProfile = useCallback(async () => {
         try {
-            const date = new Date(dateString);
-            return `${date.toLocaleDateString()} at ${timeString}`;
-        } catch (error) {
-            console.error("Error formatting date:", error);
-            return timeString; // Return just the time if date parsing fails
-        }
-    };
-
-    // Fetch counts for different collections
-    const fetchCollectionCount = async (collectionName, conditions = []) => {
-        try {
+            setProfileLoading(true);
+            const auth = getAuth();
+            const currentUser = auth.currentUser;
+            
+            if (!currentUser || !currentUser.uid) {
+                setAdminProfile({
+                    name: 'Admin',
+                    position: 'Administrator',
+                    avatarUrl: null
+                });
+                return;
+            }
+    
             const db = getFirestore();
-            let q = query(collection(db, collectionName));
-            
-            conditions.forEach(condition => {
-                q = query(q, where(...condition));
-            });
-            
-            const snapshot = await getDocs(q);
-            return snapshot.size;
+            const adminRef = doc(db, "admins", currentUser.uid);
+            const adminSnap = await getDoc(adminRef);
+    
+            if (adminSnap.exists) {
+                const data = adminSnap.data();
+                const updatedProfile = {
+                    name: data.name || 'Admin',
+                    position: data.position || 'Administrator',
+                    avatarUrl: data.avatarUrl || null
+                };
+                setAdminProfile(updatedProfile);
+                return updatedProfile;
+            }
         } catch (error) {
-            console.error(`Error fetching ${collectionName} count:`, error);
-            return 0;
+            console.error("Error fetching admin profile:", error);
+            if (!error.message.includes("not authenticated")) {
+                Alert.alert("Error", "Failed to load admin profile");
+            }
+            return null;
+        } finally {
+            setProfileLoading(false);
         }
-    };
+    }, []);
 
-    // Fetch recent activities
-    const fetchRecentActivities = async () => {
-        try {
-            const db = getFirestore();
-            const q = query(
-                collection(db, "activities"),
-                orderBy("timestamp", "desc"),
-                limit(10)
-            );
-            
-            const snapshot = await getDocs(q);
-            return snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                time: formatTimeAgo(doc.data().timestamp.toDate())
-            }));
-        } catch (error) {
-            console.error("Error fetching activities:", error);
-            return [];
-        }
-    };
-
-    // Fetch appointments data
-    const fetchAppointments = async () => {
-        try {
-            const db = getFirestore();
-            const q = query(
-                collection(db, "appointments"),
-                where("status", "==", "Pending"),
-                orderBy("date", "asc")
-            );
-            
-            const snapshot = await getDocs(q);
-            return snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                formattedDateTime: formatAppointmentDateTime(doc.data().date, doc.data().time)
-            }));
-        } catch (error) {
-            console.error("Error fetching appointments:", error);
-            return [];
-        }
-    };
-
-    // Main data fetching function
-    const fetchAdminData = async (forceRefresh = false) => {
+    const fetchAdminData = useCallback(async (forceRefresh = false) => {
         try {
             setLoading(true);
             const now = Date.now();
@@ -150,32 +175,71 @@ const AdminDashboard = () => {
                 setStats(cache.current.data.stats);
                 setRecentActivities(cache.current.data.activities);
                 setAppointments(cache.current.data.appointments);
+                setConcerns(cache.current.data.concerns);
+                setChartData(cache.current.data.chartData);
+                setPieData(cache.current.data.pieData);
                 setLoading(false);
                 return;
             }
             
-            const [pendingAppointments, unresolvedConcerns, draftUpdates, activeProjects, activities, appointmentsData] = 
-                await Promise.all([
-                    fetchCollectionCount("appointments", [["status", "==", "Pending"]]),
-                    fetchCollectionCount("concerns", [["status", "in", ["new", "in-progress"]]]),
-                    fetchCollectionCount("updates", [["status", "==", "draft"]]),
-                    fetchCollectionCount("projects", [["status", "==", "active"]]),
-                    fetchRecentActivities(),
-                    fetchAppointments()
-                ]);
+            const [
+                pendingAppointments, 
+                pendingConcerns, 
+                activeProjects, 
+                completedProjects,
+                medicalApplications,
+                resolvedConcerns, 
+                activities, 
+                appointmentsData, 
+                concernsData, 
+                medicalChartData,
+                pieData
+            ] = await Promise.all([
+                fetchCollectionCount("appointments", [["status", "==", "Pending"]]),
+                fetchCollectionCount("concerns", [["status", "in", ["Pending", "In Progress"]]]),
+                fetchCollectionCount("projects", [["status", "==", "active"]]),
+                fetchCollectionCount("projects", [["status", "==", "completed"]]),
+                fetchCollectionCount("medicalApplications"),
+                fetchCollectionCount("concerns", [["status", "==", "Resolved"]]),
+                fetchRecentActivities(),
+                fetchAppointments(),
+                fetchConcerns(),
+                fetchMedicalAppStats(),
+                fetchStatusDistribution()
+            ]);
             
             cache.current = {
                 lastFetch: now,
                 data: {
-                    stats: { pendingAppointments, unresolvedConcerns, draftUpdates, activeProjects },
+                    stats: { 
+                        pendingAppointments, 
+                        pendingConcerns, 
+                        activeProjects, 
+                        medicalApplications,
+                        completedProjects,
+                        resolvedConcerns 
+                    },
                     activities,
-                    appointments: appointmentsData
+                    appointments: appointmentsData,
+                    concerns: concernsData,
+                    chartData: medicalChartData,
+                    pieData
                 }
             };
             
-            setStats({ pendingAppointments, unresolvedConcerns, draftUpdates, activeProjects });
+            setStats({ 
+                pendingAppointments, 
+                pendingConcerns, 
+                activeProjects, 
+                medicalApplications,
+                completedProjects,
+                resolvedConcerns 
+            });
             setRecentActivities(activities);
             setAppointments(appointmentsData);
+            setConcerns(concernsData);
+            setChartData(medicalChartData);
+            setPieData(pieData);
             
         } catch (error) {
             console.error("Error fetching admin data:", error);
@@ -191,19 +255,48 @@ const AdminDashboard = () => {
             setLoading(false);
             setRefreshing(false);
         }
-    };
+    }, []);
 
-    // Set up real-time listeners
     useEffect(() => {
         fetchAdminData();
+        fetchAdminProfile();
         
         const db = getFirestore();
         const auth = getAuth();
         const adminId = auth.currentUser?.uid;
         
+        if (adminId) {
+            setCurrentUid(adminId);
+        }
+        
         if (!adminId) return;
         
-        // Set up listeners for each collection
+        const unsubscribeMedicalApplications = onSnapshot(
+            query(collection(db, "medicalApplications")),
+            (snapshot) => {
+                setStats(prev => ({ 
+                    ...prev, 
+                    medicalApplications: snapshot.size 
+                }));
+                
+                const programCounts = {};
+                snapshot.docs.forEach(doc => {
+                    const program = doc.data().program || doc.data().type || 'Other';
+                    programCounts[program] = (programCounts[program] || 0) + 1;
+                });
+                
+                const labels = Object.keys(programCounts);
+                const data = Object.values(programCounts);
+                
+                setChartData({
+                    labels: labels.length > 0 ? labels : ['No Programs'],
+                    datasets: [{
+                        data: data.length > 0 ? data : [0]
+                    }]
+                });
+            }
+        );
+        
         const unsubscribeAppointments = onSnapshot(
             query(collection(db, "appointments"), where("status", "==", "Pending")),
             (snapshot) => {
@@ -218,16 +311,24 @@ const AdminDashboard = () => {
         );
         
         const unsubscribeConcerns = onSnapshot(
-            query(collection(db, "concerns"), where("status", "in", ["new", "in-progress"])),
+            query(collection(db, "concerns"), where("status", "in", ["Pending", "In Progress"])),
             (snapshot) => {
-                setStats(prev => ({ ...prev, unresolvedConcerns: snapshot.size }));
+                const concernsData = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data(),
+                    timeAgo: formatTimeAgo(doc.data().createdAt?.toDate()),
+                    imageName: doc.data().title || doc.data().location || null,
+                    imageUrl: doc.data().imageUrl || null
+                }));
+                setConcerns(concernsData);
+                setStats(prev => ({ ...prev, pendingConcerns: snapshot.size }));
             }
         );
         
-        const unsubscribeUpdates = onSnapshot(
-            query(collection(db, "updates"), where("status", "==", "draft")),
+        const unsubscribeResolvedConcerns = onSnapshot(
+            query(collection(db, "concerns"), where("status", "==", "Resolved")),
             (snapshot) => {
-                setStats(prev => ({ ...prev, draftUpdates: snapshot.size }));
+                setStats(prev => ({ ...prev, resolvedConcerns: snapshot.size }));
             }
         );
         
@@ -238,128 +339,50 @@ const AdminDashboard = () => {
             }
         );
         
+        const unsubscribeCompletedProjects = onSnapshot(
+            query(collection(db, "projects"), where("status", "==", "completed")),
+            (snapshot) => {
+                setStats(prev => ({ ...prev, completedProjects: snapshot.size }));
+            }
+        );
+        
         const unsubscribeActivities = onSnapshot(
             query(collection(db, "activities"), orderBy("timestamp", "desc"), limit(10)),
             (snapshot) => {
                 const activities = snapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data(),
-                    time: formatTimeAgo(doc.data().timestamp.toDate())
+                    time: formatTimeAgo(doc.data().timestamp?.toDate())
                 }));
                 setRecentActivities(activities);
             }
         );
         
         return () => {
+            unsubscribeMedicalApplications();
             unsubscribeAppointments();
             unsubscribeConcerns();
-            unsubscribeUpdates();
+            unsubscribeResolvedConcerns();
             unsubscribeProjects();
+            unsubscribeCompletedProjects();
             unsubscribeActivities();
         };
-    }, []);
+    }, [fetchAdminData, fetchAdminProfile, formatAppointmentDateTime]);
 
-    const onRefresh = () => {
+    useFocusEffect(
+        useCallback(() => {
+            if (activeTab === 'profile') {
+                fetchAdminProfile();
+            }
+        }, [activeTab, fetchAdminProfile])
+    );
+
+    const onRefresh = useCallback(() => {
         setRefreshing(true);
         fetchAdminData(true);
-    };
+        fetchAdminProfile();
+    }, [fetchAdminData, fetchAdminProfile]);
 
-    const handleLogout = async () => {
-        try {
-            const auth = getAuth();
-            const user = auth.currentUser;
-            
-            if (!user) {
-                navigation.navigate("Login");
-                return;
-            }
-            
-            await auth.signOut();
-            navigation.navigate("Login");
-        } catch (error) {
-            console.error("Logout error:", error);
-            Alert.alert("Error", error.message);
-        }
-    };
-
-    // Dashboard Components
-    const StatCard = ({ icon, value, label, color, onPress }) => (
-        <TouchableOpacity style={styles.statCard} onPress={onPress}>
-            <View style={[styles.statIconContainer, { backgroundColor: color + '20' }]}>
-                <FontAwesome5 name={icon} size={20} color={color} />
-            </View>
-            <Text style={styles.statValue}>{value}</Text>
-            <Text style={styles.statLabel}>{label}</Text>
-        </TouchableOpacity>
-    );
-
-    const QuickAction = ({ icon, label, onPress }) => (
-        <TouchableOpacity style={styles.quickAction} onPress={onPress}>
-            <View style={styles.quickActionIcon}>
-                <FontAwesome5 name={icon} size={20} color="#0275d8" />
-            </View>
-            <Text style={styles.quickActionLabel}>{label}</Text>
-        </TouchableOpacity>
-    );
-
-    const ActivityItem = ({ item }) => {
-        const getIcon = () => {
-            switch(item.type) {
-                case 'appointment': return 'calendar-alt';
-                case 'concern': return 'comments';
-                case 'update': return 'newspaper';
-                case 'project': return 'project-diagram';
-                default: return 'bell';
-            }
-        };
-
-        return (
-            <View style={styles.activityItem}>
-                <View style={styles.activityIcon}>
-                    <FontAwesome5 name={getIcon()} size={16} color="#0275d8" />
-                </View>
-                <View style={styles.activityContent}>
-                    <Text style={styles.activityAction}>{item.action}</Text>
-                    <Text style={styles.activityTime}>{item.time}</Text>
-                </View>
-                <Feather name="chevron-right" size={20} color="#ccc" />
-            </View>
-        );
-    };
-
-    const AppointmentItem = ({ appointment }) => (
-        <View style={styles.appointmentItem}>
-            <Text style={styles.appointmentType}>{appointment.type}</Text>
-            <Text style={styles.appointmentPurpose}>{appointment.purpose}</Text>
-            <Text style={styles.appointmentTime}>{appointment.formattedDateTime}</Text>
-        </View>
-    );
-
-    const ActivityList = ({ activities }) => (
-        <View style={styles.activityList}>
-            {activities.map(item => (
-                <ActivityItem key={item.id} item={item} />
-            ))}
-        </View>
-    );
-
-    const NavButton = ({ icon, label, active, onPress }) => (
-        <TouchableOpacity 
-            style={[styles.navButton, active && styles.navButtonActive]} 
-            onPress={onPress}
-        >
-            <FontAwesome5 
-                name={icon} 
-                size={16} 
-                color={active ? "#FFD700" : "rgba(255,255,255,0.7)"} 
-            />
-            <Text style={[styles.navButtonLabel, active && styles.navButtonLabelActive]}>
-                {label}
-            </Text>
-        </TouchableOpacity>
-    );
-
-    // Tab Screens
     const renderDashboard = () => (
         <ScrollView
             contentContainerStyle={styles.scrollContainer}
@@ -375,7 +398,7 @@ const AdminDashboard = () => {
         >
             <Text style={styles.sectionTitle}>Admin Overview</Text>
             
-            <View style={styles.statsContainer}>
+            <View style={[styles.statsContainer, isLandscape && styles.statsContainerLandscape]}>
                 <StatCard 
                     icon="calendar-check" 
                     value={stats.pendingAppointments} 
@@ -385,17 +408,10 @@ const AdminDashboard = () => {
                 />
                 <StatCard 
                     icon="comments" 
-                    value={stats.unresolvedConcerns} 
-                    label="Unresolved Concerns" 
+                    value={stats.pendingConcerns} 
+                    label="Pending Concerns" 
                     color="#F44336"
                     onPress={() => setActiveTab('concerns')}
-                />
-                <StatCard 
-                    icon="newspaper" 
-                    value={stats.draftUpdates} 
-                    label="Draft Updates" 
-                    color="#2196F3"
-                    onPress={() => setActiveTab('updates')}
                 />
                 <StatCard 
                     icon="project-diagram" 
@@ -404,373 +420,256 @@ const AdminDashboard = () => {
                     color="#4CAF50"
                     onPress={() => setActiveTab('projects')}
                 />
+                <StatCard 
+                    icon="file-medical" 
+                    value={stats.medicalApplications} 
+                    label="Medical Apps" 
+                    color="#2196F3"
+                    onPress={() => setActiveTab('medical')}
+                />
             </View>
 
-            <Text style={styles.sectionTitle}>Upcoming Appointments</Text>
-            {appointments.length > 0 ? (
-                <>
-                    {appointments.slice(0, 3).map(appointment => (
-                        <AppointmentItem key={appointment.id} appointment={appointment} />
-                    ))}
-                    {appointments.length > 3 && (
-                        <TouchableOpacity 
-                            style={styles.seeAllButton}
-                            onPress={() => setActiveTab('appointments')}
-                        >
-                            <Text style={styles.seeAllText}>See all appointments →</Text>
-                        </TouchableOpacity>
+            <View style={[styles.contentRow, isLandscape && styles.contentRowLandscape]}>
+                <View style={[styles.contentColumn, isLandscape && styles.contentColumnLandscape]}>
+                    <Text style={styles.sectionTitle}>Upcoming Appointments</Text>
+                    {appointments.length > 0 ? (
+                        <>
+                            {appointments.slice(0, 2).map(appointment => (
+                                <AppointmentItem key={appointment.id} appointment={appointment} />
+                            ))}
+                            {appointments.length > 2 && (
+                                <TouchableOpacity 
+                                    style={styles.seeAllButton}
+                                    onPress={() => setActiveTab('appointments')}
+                                >
+                                    <Text style={styles.seeAllText}>See all appointments →</Text>
+                                </TouchableOpacity>
+                            )}
+                        </>
+                    ) : (
+                        <View style={styles.emptyContainer}>
+                            <MaterialIcons name="event-busy" size={24} color="#999" />
+                            <Text style={styles.emptyText}>No upcoming appointments</Text>
+                        </View>
                     )}
-                </>
-            ) : (
-                <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>No upcoming appointments</Text>
                 </View>
-            )}
 
-            <Text style={styles.sectionTitle}>Quick Actions</Text>
-            <View style={styles.quickActions}>
-                <QuickAction 
-                    icon="plus-circle" 
-                    label="Add Update" 
-                    onPress={() => navigation.navigate('CreateUpdate')}
-                />
-                <QuickAction 
-                    icon="file-alt" 
-                    label="Generate Report" 
-                    onPress={() => navigation.navigate('GenerateReport')}
-                />
-                <QuickAction 
-                    icon="search" 
-                    label="Search Data" 
-                    onPress={() => navigation.navigate('SearchData')}
-                />
+                <View style={[styles.contentColumn, isLandscape && styles.contentColumnLandscape]}>
+                    <Text style={styles.sectionTitle}>Pending Concerns</Text>
+                    {concerns.length > 0 ? (
+                        <>
+                            {concerns.slice(0, 2).map(concern => (
+                                <ConcernItem 
+                                    key={concern.id} 
+                                    concern={concern} 
+                                    navigation={navigation}  // Add this line
+                                />
+                            ))}
+                                {concerns.length > 2 && (
+                                <TouchableOpacity 
+                                    style={styles.seeAllButton}
+                                    onPress={() => setActiveTab('concerns')}
+                                >
+                                    <Text style={styles.seeAllText}>See all concerns →</Text>
+                                </TouchableOpacity>
+                            )}
+                        </>
+                    ) : (
+                        <View style={styles.emptyContainer}>
+                            <MaterialIcons name="help-outline" size={24} color="#999" />
+                            <Text style={styles.emptyText}>No pending concerns</Text>
+                        </View>
+                    )}
+                </View>
             </View>
 
-            <Text style={styles.sectionTitle}>Recent Activity</Text>
-            {recentActivities.length > 0 ? (
-                <ActivityList activities={recentActivities} />
-            ) : (
-                <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>No recent activities</Text>
-                </View>
-            )}
+            <View style={[styles.activityContainer, isLandscape && styles.activityContainerLandscape]}>
+                <Text style={styles.sectionTitle}>Recent Activities</Text>
+                {recentActivities.length > 0 ? (
+                    <ActivityList activities={recentActivities} />
+                ) : (
+                    <View style={styles.emptyContainer}>
+                        <MaterialIcons name="history" size={24} color="#999" />
+                        <Text style={styles.emptyText}>No recent activities</Text>
+                    </View>
+                )}
+            </View>
         </ScrollView>
     );
 
-    const renderTabContent = () => {
-        switch(activeTab) {
-            case "dashboard": 
-                return renderDashboard();
-            case "projects": 
-                return <ProjectsTab navigation={navigation} />;
-            case "concerns": 
-                return <ConcernsTab navigation={navigation} />;
-            case "appointments": 
-                return <AppointmentsTab navigation={navigation} />;
-            case "updates": 
-                return <UpdatesTab navigation={navigation} />;
-            default: 
+    const renderContent = () => {
+        switch (activeTab) {
+            case 'projects':
+                return <ProjectsTab />;
+            case 'concerns':
+                return <ConcernsTab concerns={concerns} />;
+            case 'appointments':
+                return <AppointmentsTab appointments={appointments} />;
+            case 'updates':
+                return <UpdatesTab />;
+            case 'medical':
+                return <MedicalApplicationTab />;
+            case 'profile':
+                return <ProfileTab profile={adminProfile} onProfileUpdate={fetchAdminProfile} />;
+            case 'stats':
+                return <StatsTab 
+                    chartData={chartData} 
+                    pieData={pieData} 
+                    stats={stats} 
+                />;
+            case 'dashboard':
+            default:
                 return renderDashboard();
         }
     };
 
+    useEffect(() => {
+        const configureBackgroundFetch = async () => {
+            try {
+                const status = await BackgroundFetch.configure({
+                    minimumFetchInterval: 15, // minutes
+                    stopOnTerminate: false,
+                    startOnBoot: true,
+                    enableHeadless: true,
+                    requiredNetworkType: BackgroundFetch.NETWORK_TYPE_ANY,
+                }, async (taskId) => {
+                    console.log('[BackgroundFetch] Task:', taskId);
+                    await fetchAdminData(true);
+                    BackgroundFetch.finish(taskId);
+                }, (taskId) => {
+                    console.warn('[BackgroundFetch] TIMEOUT task:', taskId);
+                    BackgroundFetch.finish(taskId);
+                });
+                
+                console.log('[BackgroundFetch] configure status:', status);
+            } catch (error) {
+                console.error('BackgroundFetch config error:', error);
+            }
+        };
+        
+        if (Platform.OS !== 'web') {
+            configureBackgroundFetch();
+        }
+        
+        return () => {
+            BackgroundFetch.stop();
+        };
+    }, [fetchAdminData]);
+
+    useEffect(() => {
+        const subscription = Dimensions.addEventListener('change', ({ window }) => {
+            const { width, height } = window;
+            const newIsLandscape = width > height;
+            if (newIsLandscape !== isLandscape) {
+                setActiveTab(currentTab => currentTab);
+            }
+        });
+
+        return () => subscription.remove();
+    }, [isLandscape]);
+
+    if (loading) {
+        return (
+            <SafeAreaView style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#003366" />
+                <Text style={styles.loadingText}>Loading dashboard data...</Text>
+            </SafeAreaView>
+        );
+    }
+
     return (
-        <SafeAreaView style={styles.safeContainer}>
-            {/* Header */}
-            <LinearGradient
-                colors={['#003366', '#0275d8']}
-                style={styles.header}
-            >
-                <View style={styles.headerContent}>
-                    <Image
-                        source={{ uri: 'https://via.placeholder.com/50' }}
-                        style={styles.adminAvatar}
-                    />
-                    <View>
-                        <Text style={styles.headerSubtitle}>Administrator</Text>
-                        <Text style={styles.headerTitle}>Dashboard</Text>
-                    </View>
-                    <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-                        <Feather name="log-out" size={24} color="white" />
-                    </TouchableOpacity>
-                </View>
-            </LinearGradient>
-
-            {/* Main Content */}
-            {loading && !refreshing ? (
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#003366" />
-                    <Text style={styles.loadingText}>Loading Dashboard...</Text>
-                </View>
-            ) : (
-                renderTabContent()
-            )}
-
-            {/* Admin Navigation */}
-            <LinearGradient
-                colors={['#003366', '#0275d8']}
-                style={styles.adminNav}
-            >
-                <NavButton 
-                    icon="tachometer-alt" 
-                    label="Dashboard" 
-                    active={activeTab === "dashboard"}
-                    onPress={() => setActiveTab("dashboard")}
-                />
-                <NavButton 
-                    icon="project-diagram" 
-                    label="Projects" 
-                    active={activeTab === "projects"}
-                    onPress={() => setActiveTab("projects")}
-                />
-                <NavButton 
-                    icon="comments" 
-                    label="Concerns" 
-                    active={activeTab === "concerns"}
-                    onPress={() => setActiveTab("concerns")}
-                />
-                <NavButton 
-                    icon="calendar-alt" 
-                    label="Appointments" 
-                    active={activeTab === "appointments"}
-                    onPress={() => setActiveTab("appointments")}
-                />
-                <NavButton 
-                    icon="newspaper" 
-                    label="Updates" 
-                    active={activeTab === "updates"}
-                    onPress={() => setActiveTab("updates")}
-                />
-            </LinearGradient>
+        <SafeAreaView style={styles.container}>
+            <Header 
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                adminProfile={adminProfile}
+            />
+            
+            {renderContent()}
         </SafeAreaView>
     );
 };
 
 const styles = StyleSheet.create({
-    safeContainer: {
+    container: {
         flex: 1,
-        backgroundColor: '#f5f5f5',
-    },
-    header: {
-        paddingVertical: 15,
-        paddingHorizontal: 20,
-    },
-    headerContent: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    adminAvatar: {
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-        marginRight: 15,
-    },
-    headerSubtitle: {
-        color: 'rgba(255,255,255,0.8)',
-        fontSize: 14,
-    },
-    headerTitle: {
-        color: '#FFFFFF',
-        fontSize: 20,
-        fontWeight: 'bold',
-    },
-    logoutButton: {
-        padding: 8,
-    },
-    scrollContainer: {
-        padding: 20,
-        paddingBottom: 90,
-    },
-    sectionTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 15,
-        color: '#003366',
-    },
-    statsContainer: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-        marginBottom: 20,
-    },
-    statCard: {
-        width: '48%',
-        backgroundColor: '#FFFFFF',
-        borderRadius: 10,
-        padding: 15,
-        marginBottom: 15,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 2,
-    },
-    statIconContainer: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    statValue: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#003366',
-        marginBottom: 5,
-    },
-    statLabel: {
-        fontSize: 14,
-        color: '#666',
-    },
-    quickActions: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 20,
-    },
-    quickAction: {
-        width: '32%',
-        backgroundColor: '#FFFFFF',
-        borderRadius: 10,
-        padding: 15,
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 2,
-    },
-    quickActionIcon: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: 'rgba(2, 117, 216, 0.1)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    quickActionLabel: {
-        fontSize: 14,
-        color: '#003366',
-        textAlign: 'center',
-    },
-    activityList: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 10,
-        padding: 15,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 2,
-    },
-    activityItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f0f0f0',
-    },
-    activityIcon: {
-        width: 30,
-        height: 30,
-        borderRadius: 15,
-        backgroundColor: 'rgba(2, 117, 216, 0.1)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 15,
-    },
-    activityContent: {
-        flex: 1,
-    },
-    activityAction: {
-        fontSize: 14,
-        color: '#333',
-        marginBottom: 3,
-    },
-    activityTime: {
-        fontSize: 12,
-        color: '#999',
-    },
-    appointmentItem: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 8,
-        padding: 15,
-        marginBottom: 10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
-        elevation: 2,
-    },
-    appointmentType: {
-        fontWeight: 'bold',
-        color: '#003366',
-        marginBottom: 5,
-    },
-    appointmentPurpose: {
-        color: '#333',
-        marginBottom: 5,
-    },
-    appointmentTime: {
-        color: '#666',
-        fontSize: 12,
-    },
-    seeAllButton: {
-        alignSelf: 'flex-end',
-        marginTop: 5,
-    },
-    seeAllText: {
-        color: '#0275d8',
-        fontSize: 14,
-    },
-    adminNav: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        paddingVertical: 15,
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-    },
-    navButton: {
-        alignItems: 'center',
-        padding: 5,
-    },
-    navButtonActive: {
-        borderTopWidth: 2,
-        borderTopColor: '#FFD700',
-    },
-    navButtonLabel: {
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.7)',
-        marginTop: 5,
-    },
-    navButtonLabelActive: {
-        color: '#FFD700',
-        fontWeight: 'bold',
+        backgroundColor: "#F5F7FA",
     },
     loadingContainer: {
         flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
+        justifyContent: "center",
+        alignItems: "center",
+        backgroundColor: "#F5F7FA",
     },
     loadingText: {
+        marginTop: 12,
+        fontSize: 16,
+        color: "#003366",
+    },
+    scrollContainer: {
+        paddingHorizontal: 20,
+        paddingBottom: 20,
+    },
+    statsContainer: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        justifyContent: "space-between",
+    },
+    statsContainerLandscape: {
+        justifyContent: "flex-start",
+    },
+    contentRow: {
+        flexDirection: "column",
+    },
+    contentRowLandscape: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+    },
+    contentColumn: {
+        width: "100%",
+    },
+    contentColumnLandscape: {
+        width: "48.5%",
+    },
+    activityContainer: {
         marginTop: 10,
-        color: '#003366',
+    },
+    activityContainerLandscape: {
+        marginTop: 0,
     },
     emptyContainer: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 10,
+        backgroundColor: "white",
+        borderRadius: 12,
         padding: 20,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 15,
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 16,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 2,
     },
     emptyText: {
-        color: '#999',
-        fontSize: 16,
+        marginTop: 8,
+        fontSize: 14,
+        color: "#999",
+    },
+    seeAllButton: {
+        alignSelf: "flex-end",
+        paddingVertical: 8,
+    },
+    seeAllText: {
+        fontSize: 14,
+        color: "#0275d8",
+        fontWeight: "600",
+    },
+    sectionTitle: {
+        fontSize: 18,
+        fontWeight: "700",
+        color: "#003366",
+        marginTop: 20,
+        marginBottom: 12,
     },
 });
 

@@ -186,13 +186,6 @@ export default function InfoScreen() {
                             <Text style={styles.hoursDay}>Monday - Friday</Text>
                             <Text style={styles.hoursTime}>8:00 AM - 5:00 PM</Text>
                         </View>
-                        <View style={styles.hoursItem}>
-                            <Text style={styles.hoursDay}>Saturday</Text>
-                            <Text style={styles.hoursTime}>9:00 AM - 12:00 PM</Text>
-                        </View>
-                        <Text style={styles.hoursNote}>
-                            * Public consultations every Wednesday, 1:00 PM - 4:00 PM
-                        </Text>
                     </Card.Content>
                 </Card>
 

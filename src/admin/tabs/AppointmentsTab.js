@@ -12,20 +12,32 @@ import {
     Platform
 } from "react-native";
 import { FontAwesome5, MaterialIcons, Feather } from "@expo/vector-icons";
-import firestore from '@react-native-firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { 
-    initNotificationService,
-    registerHeadlessTask,
-    checkPendingAppointments
-} from '../components/NotificationsService';
+import { getFirestore, 
+         collection, 
+         doc, 
+         query, 
+         where, 
+         orderBy, 
+         getDoc,
+         getDocs, 
+         onSnapshot,
+         updateDoc,
+         serverTimestamp } from '@react-native-firebase/firestore';
+import { useNavigation } from '@react-navigation/native';
+import { format } from 'date-fns';
 
 const APPOINTMENT_TYPES = {
-    SOLICITATION: { label: "Solicitation", icon: "file-signature", color: "#4a6da7" },
-    COURTESY: { label: "Courtesy", icon: "handshake", color: "#6c5ce7" },
-    INVITATION: { label: "Invitation", icon: "calendar-check", color: "#00b894" },
+    COURTESY: { label: "Courtesy (VIP)", icon: "handshake", color: "#6c5ce7" },
     FINANCE: { label: "Finance/Medical", icon: "file-invoice-dollar", color: "#e84393" },
     OTHER: { label: "Other", icon: "question-circle", color: "#636e72" }
+};
+
+const STATUS_COLORS = {
+    Pending: "#FFA000",
+    Confirmed: "#28a745",
+    Cancelled: "#dc3545",
+    Completed: "#007bff",
+    Rejected: "#6c757d"
 };
 
 const SORT_OPTIONS = [
@@ -33,7 +45,41 @@ const SORT_OPTIONS = [
     { id: 'date_desc', label: 'Time (Latest First)', icon: 'arrow-up' }
 ];
 
-const AppointmentsTab = ({ navigation }) => {
+const safeFormatDate = (dateValue, formatString, fallbackText = 'Not available') => {
+    try {
+        if (dateValue && typeof dateValue.toDate === 'function') {
+            return format(dateValue.toDate(), formatString);
+        }
+        if (dateValue instanceof Date) {
+            return format(dateValue, formatString);
+        }
+        if (typeof dateValue === 'number') {
+            return format(new Date(dateValue), formatString);
+        }
+        if (typeof dateValue === 'string') {
+            const parsedDate = new Date(dateValue);
+            if (!isNaN(parsedDate.getTime())) {
+                return format(parsedDate, formatString);
+            }
+        }
+        return fallbackText;
+    } catch (error) {
+        console.log("Date formatting error:", error, "for value:", dateValue);
+        return fallbackText;
+    }
+};
+
+const validateTime = (timeValue) => {
+    if (!timeValue) return "Not scheduled";
+    if (typeof timeValue !== 'string') return "Invalid time";
+    if (/^([0-1]?[0-9]|2[0-3]):[0-5][0-9] [AP]M$/i.test(timeValue)) {
+        return timeValue;
+    }
+    return "Invalid time format";
+};
+
+const AppointmentsTab = () => {
+    const navigation = useNavigation();
     const [appointments, setAppointments] = useState([]);
     const [filteredAppointments, setFilteredAppointments] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -45,22 +91,7 @@ const AppointmentsTab = ({ navigation }) => {
     const [showSortOptions, setShowSortOptions] = useState(false);
     const [showActionButtons, setShowActionButtons] = useState({});
 
-    // Initialize notification service
-    useEffect(() => {
-        let cleanup;
-        
-        const setupNotifications = async () => {
-            const service = await initNotificationService(navigation);
-            cleanup = service.cleanup;
-            registerHeadlessTask();
-        };
-        
-        setupNotifications();
-        
-        return () => {
-            if (cleanup) cleanup();
-        };
-    }, [navigation]);
+    const db = getFirestore();
 
     const fetchUserDetails = async (userId) => {
         try {
@@ -68,8 +99,7 @@ const AppointmentsTab = ({ navigation }) => {
                 return userCache[userId];
             }
 
-            const db = firestore();
-            const userDoc = await db.collection('users').doc(userId).get();
+            const userDoc = await getDoc(doc(db, 'users', userId));
             
             if (userDoc.exists) {
                 const userData = {
@@ -91,16 +121,15 @@ const AppointmentsTab = ({ navigation }) => {
     const fetchAppointments = async () => {
         try {
             setRefreshing(true);
-            const db = firestore();
-            
-            let q;
             const orderDirection = sortOption.id.includes('asc') ? 'asc' : 'desc';
-            q = db.collection('appointments')
-            .where('status', '==', 'Pending')
-            .orderBy('time', orderDirection);
-       
             
-            const querySnapshot = await q.get();
+            const q = query(
+                collection(db, 'appointments'),
+                where('status', '==', 'Pending'),
+                orderBy('createdAt', orderDirection)
+            );
+            
+            const querySnapshot = await getDocs(q);
             const appointmentsData = [];
             
             for (const docSnapshot of querySnapshot.docs) {
@@ -111,17 +140,31 @@ const AppointmentsTab = ({ navigation }) => {
                     userDetails = await fetchUserDetails(appointmentData.userId);
                 }
                 
-                const typeKey = appointmentData.type?.toUpperCase() || 'OTHER';
+                const typeKey = appointmentData.type?.replace(/ \(.*\)$/, '').toUpperCase() || 'OTHER';
                 const typeInfo = APPOINTMENT_TYPES[typeKey] || APPOINTMENT_TYPES.OTHER;
+                
+                const hasValidDate = appointmentData.date && 
+                                   !isNaN(new Date(appointmentData.date.toDate()).getTime());
+                const isDifferentFromCreated = hasValidDate && 
+                                             appointmentData.date.toDate().getTime() !== 
+                                             appointmentData.createdAt.toDate().getTime();
                 
                 appointmentsData.push({
                     id: docSnapshot.id,
                     ...appointmentData,
-                    time: appointmentData.time || "8:00 AM",
+                    formattedDate: safeFormatDate(appointmentData.date, 'MMM dd, yyyy'),
+                    formattedTime: validateTime(appointmentData.time),
+                    formattedCreatedAt: safeFormatDate(
+                        appointmentData.createdAt, 
+                        'MMM dd, yyyy hh:mm a',
+                        'Recent'
+                    ),
                     userFirstName: userDetails.firstName,
                     userLastName: userDetails.lastName,
                     userProfileImage: userDetails.profileImage,
-                    typeInfo: typeInfo
+                    typeInfo: typeInfo,
+                    isCourtesy: appointmentData.isCourtesy || false,
+                    isScheduled: appointmentData.isCourtesy ? isDifferentFromCreated : hasValidDate
                 });
             }
             
@@ -157,52 +200,81 @@ const AppointmentsTab = ({ navigation }) => {
 
     const confirmAppointment = async (appointmentId) => {
         try {
-            const db = firestore();
-            await db.collection('appointments').doc(appointmentId).update({
+            await updateDoc(doc(db, 'appointments', appointmentId), {
                 status: "Confirmed",
-                updatedAt: firestore.FieldValue.serverTimestamp()
+                updatedAt: serverTimestamp()
             });
+            
             Alert.alert("Success", "Appointment confirmed successfully");
             setShowActionButtons(prev => ({ ...prev, [appointmentId]: false }));
-            fetchAppointments(); // Refresh the list
             
-            // Check if there are still pending appointments after this update
-            await checkPendingAppointments();
+            setAppointments(prev => prev.filter(app => app.id !== appointmentId));
+            setFilteredAppointments(prev => prev.filter(app => app.id !== appointmentId));
         } catch (error) {
             console.error("Error confirming appointment:", error);
             Alert.alert("Error", "Failed to confirm appointment");
+            fetchAppointments();
         }
     };
 
     const rejectAppointment = async (appointmentId) => {
-        try {
-            const db = firestore();
-            await db.collection('appointments').doc(appointmentId).update({
-                status: "Rejected",
-                updatedAt: firestore.FieldValue.serverTimestamp()
-            });
-            Alert.alert("Success", "Appointment rejected");
-            setShowActionButtons(prev => ({ ...prev, [appointmentId]: false }));
-            fetchAppointments(); // Refresh the list
-            
-            // Check if there are still pending appointments after this update
-            await checkPendingAppointments();
-        } catch (error) {
-            console.error("Error rejecting appointment:", error);
-            Alert.alert("Error", "Failed to reject appointment");
-        }
+        Alert.alert(
+            "Confirm Rejection",
+            "Are you sure you want to reject this appointment?",
+            [
+                {
+                    text: "Cancel",
+                    style: "cancel"
+                },
+                { 
+                    text: "Reject", 
+                    onPress: async () => {
+                        try {
+                            await updateDoc(doc(db, 'appointments', appointmentId), {
+                                status: "Rejected",
+                                updatedAt: serverTimestamp()
+                            });
+                            
+                            Alert.alert("Success", "Appointment rejected");
+                            setShowActionButtons(prev => ({ ...prev, [appointmentId]: false }));
+                            
+                            setAppointments(prev => prev.filter(app => app.id !== appointmentId));
+                            setFilteredAppointments(prev => prev.filter(app => app.id !== appointmentId));
+                        } catch (error) {
+                            console.error("Error rejecting appointment:", error);
+                            Alert.alert("Error", "Failed to reject appointment");
+                            fetchAppointments();
+                        }
+                    },
+                    style: "destructive"
+                }
+            ]
+        );
     };
 
-  useEffect(() => {
-    fetchAppointments();
-    
-    const db = firestore();
-    const orderDirection = sortOption.id.includes('asc') ? 'asc' : 'desc';
-    const q = db.collection('appointments')
-               .where('status', '==', 'Pending')
-               .orderBy('time', orderDirection);
+    const handleScheduleCourtesy = (appointmentId) => {
+        navigation.navigate('ScheduleCourtesy', { 
+            appointmentId
+        });
+    };
+
+    const handleViewDetails = (appointmentId) => {
+        navigation.navigate('AppointmentDetail', { 
+            appointmentId
+        });
+    };
+
+    useEffect(() => {
+        fetchAppointments();
         
-        const unsubscribe = q.onSnapshot(async (snapshot) => {
+        const orderDirection = sortOption.id.includes('asc') ? 'asc' : 'desc';
+        const q = query(
+            collection(db, 'appointments'),
+            where('status', '==', 'Pending'),
+            orderBy('createdAt', orderDirection)
+        );
+            
+        const unsubscribe = onSnapshot(q, async (snapshot) => {
             const updatedAppointments = [];
             
             for (const docSnapshot of snapshot.docs) {
@@ -213,41 +285,43 @@ const AppointmentsTab = ({ navigation }) => {
                     userDetails = await fetchUserDetails(appointmentData.userId);
                 }
                 
-                const typeKey = appointmentData.type?.toUpperCase() || 'OTHER';
+                const typeKey = appointmentData.type?.replace(/ \(.*\)$/, '').toUpperCase() || 'OTHER';
                 const typeInfo = APPOINTMENT_TYPES[typeKey] || APPOINTMENT_TYPES.OTHER;
+                
+                const hasValidDate = appointmentData.date && 
+                                   !isNaN(new Date(appointmentData.date.toDate()).getTime());
+                const isDifferentFromCreated = hasValidDate && 
+                                             appointmentData.date.toDate().getTime() !== 
+                                             appointmentData.createdAt.toDate().getTime();
                 
                 updatedAppointments.push({
                     id: docSnapshot.id,
                     ...appointmentData,
-                    time: appointmentData.time || "8:00 AM",
+                    formattedDate: safeFormatDate(appointmentData.date, 'MMM dd, yyyy'),
+                    formattedTime: validateTime(appointmentData.time),
+                    formattedCreatedAt: safeFormatDate(
+                        appointmentData.createdAt, 
+                        'MMM dd, yyyy hh:mm a',
+                        'Recent'
+                    ),
                     userFirstName: userDetails.firstName,
                     userLastName: userDetails.lastName,
                     userProfileImage: userDetails.profileImage,
-                    typeInfo: typeInfo
+                    typeInfo: typeInfo,
+                    isCourtesy: appointmentData.isCourtesy || false,
+                    isScheduled: appointmentData.isCourtesy ? isDifferentFromCreated : hasValidDate
                 });
             }
             
             setAppointments(updatedAppointments);
             applyFilters(updatedAppointments, selectedType);
+        }, error => {
+            console.error("Firestore snapshot error:", error);
+            Alert.alert("Error", "Failed to sync appointments");
         });
         
         return () => unsubscribe();
     }, [sortOption]);
-
-    const formatDate = (dateString) => {
-        try {
-            const date = new Date(dateString);
-            return date.toLocaleDateString('en-US', {
-                weekday: 'short',
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric'
-            });
-        } catch (error) {
-            console.error("Error formatting date:", error);
-            return 'Invalid date';
-        }
-    };
 
     const handleTypeSelect = (type) => {
         setSelectedType(type === selectedType ? null : type);
@@ -258,98 +332,186 @@ const AppointmentsTab = ({ navigation }) => {
     const handleSortSelect = (option) => {
         setSortOption(option);
         setShowSortOptions(false);
+        fetchAppointments();
     };
 
-    const AppointmentCard = ({ appointment, onPress }) => (
-        <View style={styles.appointmentCard}>
-            <TouchableOpacity onPress={() => toggleActionButtons(appointment.id)}>
-                <View style={styles.cardHeader}>
-                    <View style={[styles.typeIndicator, { backgroundColor: appointment.typeInfo.color }]}>
-                        <FontAwesome5 
-                            name={appointment.typeInfo.icon} 
-                            size={14} 
-                            color="#fff" 
-                        />
-                    </View>
-                    <Text style={styles.appointmentTitle}>{appointment.purpose}</Text>
-                    <View style={styles.statusBadge}>
-                        <Text style={[
-                            styles.statusText,
-                            appointment.status === 'Pending' && styles.statusPending,
-                            appointment.status === 'Approved' && styles.statusApproved,
-                            appointment.status === 'Rejected' && styles.statusRejected
+    const AppointmentCard = ({ appointment }) => {
+        const isActuallyScheduled = appointment.isCourtesy 
+            ? appointment.isScheduled && appointment.status === 'Confirmed'
+            : appointment.isScheduled;
+
+        return (
+            <View style={[
+                styles.appointmentCard,
+                appointment.isCourtesy && styles.courtesyCard,
+                isActuallyScheduled && styles.scheduledCard
+            ]}>
+                <TouchableOpacity onPress={() => toggleActionButtons(appointment.id)}>
+                    <View style={styles.cardHeader}>
+                        <View style={[
+                            styles.typeIndicator, 
+                            { 
+                                backgroundColor: appointment.typeInfo.color,
+                                width: appointment.isCourtesy ? 30 : 24,
+                                height: appointment.isCourtesy ? 30 : 24,
+                                borderRadius: appointment.isCourtesy ? 15 : 12
+                            }
                         ]}>
-                            {appointment.status}
+                            <FontAwesome5 
+                                name={appointment.typeInfo.icon} 
+                                size={appointment.isCourtesy ? 16 : 14} 
+                                color="#fff" 
+                            />
+                        </View>
+                        <Text style={[
+                            styles.appointmentTitle,
+                            appointment.isCourtesy && styles.courtesyTitle
+                        ]}>
+                            {appointment.purpose}
                         </Text>
-                    </View>
-                </View>
-                
-                <View style={styles.appointmentDetails}>
-                    <View style={styles.detailRow}>
-                        <FontAwesome5 name="calendar-alt" size={14} color="#666" />
-                        <Text style={styles.detailText}>
-                            Date: {formatDate(appointment.date)}
-                        </Text>
-                    </View>
-                    
-                    <View style={styles.detailRow}>
-                        <FontAwesome5 name="clock" size={14} color="#666" />
-                        <Text style={styles.detailText}>
-                            Time: {appointment.time}
-                        </Text>
-                    </View>
-                    
-                    <View style={styles.detailRow}>
-                        <FontAwesome5 name="user" size={14} color="#666" />
-                        <Text style={styles.detailText}>
-                            {`${appointment.userFirstName} ${appointment.userLastName}`}
-                        </Text>
-                    </View>
-                    
-                    {appointment.notes && (
-                        <View style={styles.detailRow}>
-                            <FontAwesome5 name="sticky-note" size={14} color="#666" />
-                            <Text style={styles.detailText} numberOfLines={1}>
-                                {appointment.notes}
+                        <View style={[
+                            styles.statusBadge,
+                            { backgroundColor: STATUS_COLORS[appointment.status] || '#FFF9E6' }
+                        ]}>
+                            <Text style={[
+                                styles.statusText,
+                                { color: appointment.status === 'Pending' ? 'white' : '#fff' }
+                            ]}>
+                                {appointment.status}
                             </Text>
                         </View>
-                    )}
-                </View>
-                
-                <View style={styles.cardFooter}>
-                    <Text style={styles.typeText}>
-                        {appointment.typeInfo.label}
-                    </Text>
-                    <MaterialIcons name={showActionButtons[appointment.id] ? "expand-less" : "expand-more"} size={20} color="#999" />
-                </View>
-            </TouchableOpacity>
+                    </View>
+                    
+                    <View style={styles.appointmentDetails}>
+                        {appointment.isCourtesy && (
+                            <View style={styles.detailRow}>
+                                <FontAwesome5 name="user-tie" size={14} color="#666" />
+                                <Text style={styles.detailText}>
+                                    Courtesy Request
+                                </Text>
+                            </View>
+                        )}
+                        
+                        {appointment.date ? (
+                            <>
+                                <View style={styles.detailRow}>
+                                    <FontAwesome5 name="calendar-alt" size={14} color="#666" />
+                                    <Text style={styles.detailText}>
+                                        {appointment.formattedDate}
+                                    </Text>
+                                </View>
+                                
+                                <View style={styles.detailRow}>
+                                    <FontAwesome5 name="clock" size={14} color="#666" />
+                                    <Text style={styles.detailText}>
+                                        {appointment.formattedTime}
+                                    </Text>
+                                </View>
+                            </>
+                        ) : (
+                            <View style={styles.detailRow}>
+                                <FontAwesome5 name="calendar-plus" size={14} color="#666" />
+                                <Text style={styles.detailText}>
+                                    Date not yet scheduled
+                                </Text>
+                            </View>
+                        )}
+                        
+                        <View style={styles.detailRow}>
+                            <FontAwesome5 name="user" size={14} color="#666" />
+                            <Text style={styles.detailText}>
+                                {`${appointment.userFirstName} ${appointment.userLastName}`}
+                            </Text>
+                        </View>
+                        
+                        <View style={styles.detailRow}>
+                            <FontAwesome5 name="calendar-check" size={14} color="#666" />
+                            <Text style={styles.detailText}>
+                                Submitted: {appointment.formattedCreatedAt}
+                            </Text>
+                        </View>
+                        
+                        {appointment.notes && (
+                            <View style={styles.detailRow}>
+                                <FontAwesome5 name="sticky-note" size={14} color="#666" />
+                                <Text style={styles.detailText} numberOfLines={1}>
+                                    {appointment.notes}
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+                    
+                    <View style={styles.cardFooter}>
+                        <Text style={[
+                            styles.typeText,
+                            appointment.isCourtesy && styles.courtesyTypeText
+                        ]}>
+                            {appointment.typeInfo.label}
+                        </Text>
+                        <MaterialIcons 
+                            name={showActionButtons[appointment.id] ? "expand-less" : "expand-more"} 
+                            size={20} 
+                            color="#999" 
+                        />
+                    </View>
+                </TouchableOpacity>
 
-            {showActionButtons[appointment.id] && (
-                <View style={styles.actionButtonsContainer}>
-                    <TouchableOpacity 
-                        style={[styles.actionButton, styles.confirmButton]}
-                        onPress={() => confirmAppointment(appointment.id)}
-                    >
-                        <Text style={styles.actionButtonText}>Confirm</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                        style={[styles.actionButton, styles.rejectButton]}
-                        onPress={() => rejectAppointment(appointment.id)}
-                    >
-                        <Text style={styles.actionButtonText}>Reject</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                        style={[styles.actionButton, styles.detailsButton]}
-                        onPress={() => navigation.navigate('AppointmentDetail', { 
-                            appointment: appointment 
-                        })}
-                    >
-                        <Text style={styles.actionButtonText}>View Details</Text>
-                    </TouchableOpacity>
-                </View>
-            )}
-        </View>
-    );
+                {showActionButtons[appointment.id] && (
+                    <View style={styles.actionButtonsContainer}>
+                        {appointment.isCourtesy ? (
+                            <>
+                                {!isActuallyScheduled ? (
+                                    <TouchableOpacity 
+                                        style={[styles.actionButton, styles.scheduleButton]}
+                                        onPress={() => handleScheduleCourtesy(appointment.id)}
+                                    >
+                                        <FontAwesome5 name="calendar-plus" size={14} color="#fff" />
+                                        <Text style={styles.actionButtonText}>Schedule</Text>
+                                    </TouchableOpacity>
+                                ) : (
+                                    <View style={styles.scheduledBadge}>
+                                        <FontAwesome5 name="calendar-check" size={14} color="#28a745" />
+                                        <Text style={styles.scheduledText}>Scheduled</Text>
+                                    </View>
+                                )}
+                                <TouchableOpacity 
+                                    style={[styles.actionButton, styles.rejectButton]}
+                                    onPress={() => rejectAppointment(appointment.id)}
+                                >
+                                    <FontAwesome5 name="times" size={14} color="#fff" />
+                                    <Text style={styles.actionButtonText}>Reject</Text>
+                                </TouchableOpacity>
+                            </>
+                        ) : (
+                            <>
+                                <TouchableOpacity 
+                                    style={[styles.actionButton, styles.confirmButton]}
+                                    onPress={() => confirmAppointment(appointment.id)}
+                                >
+                                    <FontAwesome5 name="check" size={14} color="#fff" />
+                                    <Text style={styles.actionButtonText}>Confirm</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={[styles.actionButton, styles.rejectButton]}
+                                    onPress={() => rejectAppointment(appointment.id)}
+                                >
+                                    <FontAwesome5 name="times" size={14} color="#fff" />
+                                    <Text style={styles.actionButtonText}>Reject</Text>
+                                </TouchableOpacity>
+                            </>
+                        )}
+                        <TouchableOpacity 
+                            style={[styles.actionButton, styles.detailsButton]}
+                            onPress={() => handleViewDetails(appointment.id)}
+                        >
+                            <FontAwesome5 name="info-circle" size={14} color="#fff" />
+                            <Text style={styles.actionButtonText}>Details</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+            </View>
+        );
+    };
 
     return (
         <View style={styles.container}>
@@ -376,19 +538,15 @@ const AppointmentsTab = ({ navigation }) => {
             </View>
 
             {loading && !refreshing ? (
-                <ActivityIndicator size="large" color="#003366" style={styles.loader} />
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#003366" />
+                    <Text style={styles.loadingText}>Loading appointments...</Text>
+                </View>
             ) : (
                 <FlatList
                     data={filteredAppointments}
                     keyExtractor={item => item.id}
-                    renderItem={({ item }) => (
-                        <AppointmentCard 
-                            appointment={item}
-                            onPress={() => navigation.navigate('AppointmentDetail', { 
-                                appointment: item 
-                            })}
-                        />
-                    )}
+                    renderItem={({ item }) => <AppointmentCard appointment={item} />}
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
                             <Text style={styles.emptyText}>
@@ -403,13 +561,13 @@ const AppointmentsTab = ({ navigation }) => {
                             refreshing={refreshing}
                             onRefresh={fetchAppointments}
                             colors={["#003366", "#0275d8"]}
+                            tintColor="#003366"
                         />
                     }
-                    contentContainerStyle={filteredAppointments.length === 0 && styles.listEmptyContainer}
+                    contentContainerStyle={filteredAppointments.length === 0 ? styles.emptyListContainer : styles.listContainer}
                 />
             )}
             
-            {/* Type Filter Modal */}
             <Modal
                 visible={showTypeFilter}
                 transparent={true}
@@ -460,7 +618,6 @@ const AppointmentsTab = ({ navigation }) => {
                 </View>
             </Modal>
             
-            {/* Sort Options Modal */}
             <Modal
                 visible={showSortOptions}
                 transparent={true}
@@ -512,6 +669,15 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#f5f5f5',
     },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    loadingText: {
+        marginTop: 10,
+        color: '#003366',
+    },
     filterBar: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -533,8 +699,8 @@ const styles = StyleSheet.create({
         color: '#003366',
         fontWeight: '500',
     },
-    loader: {
-        marginTop: 50,
+    listContainer: {
+        paddingBottom: 20,
     },
     appointmentCard: {
         backgroundColor: '#fff',
@@ -547,15 +713,21 @@ const styles = StyleSheet.create({
         shadowRadius: 4,
         elevation: 3,
     },
+    courtesyCard: {
+        borderLeftWidth: 4,
+        borderLeftColor: '#6c5ce7',
+        backgroundColor: '#f8f5ff'
+    },
+    scheduledCard: {
+        borderLeftWidth: 4,
+        borderLeftColor: '#28a745',
+    },
     cardHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         marginBottom: 10,
     },
     typeIndicator: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 10,
@@ -566,24 +738,19 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#333',
     },
+    courtesyTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#4a3c8a'
+    },
     statusBadge: {
         paddingHorizontal: 8,
         paddingVertical: 3,
         borderRadius: 12,
-        backgroundColor: '#f0f0f0',
     },
     statusText: {
         fontSize: 12,
         fontWeight: '600',
-    },
-    statusPending: {
-        color: '#f39c12',
-    },
-    statusApproved: {
-        color: '#27ae60',
-    },
-    statusRejected: {
-        color: '#e74c3c',
     },
     appointmentDetails: {
         marginBottom: 10,
@@ -611,31 +778,59 @@ const styles = StyleSheet.create({
         color: '#666',
         fontWeight: '500',
     },
+    courtesyTypeText: {
+        color: '#6c5ce7',
+        fontWeight: '600'
+    },
     actionButtonsContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         marginTop: 10,
+        flexWrap: 'wrap'
     },
     actionButton: {
-        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
         paddingVertical: 8,
+        paddingHorizontal: 12,
         borderRadius: 6,
         justifyContent: 'center',
-        alignItems: 'center',
-        marginHorizontal: 5,
+        marginVertical: 5,
+        minWidth: '30%'
     },
     confirmButton: {
-        backgroundColor: '#27ae60',
+        backgroundColor: '#28a745',
     },
     rejectButton: {
-        backgroundColor: '#e74c3c',
+        backgroundColor: '#dc3545',
     },
     detailsButton: {
-        backgroundColor: '#3498db',
+        backgroundColor: '#007bff',
+    },
+    scheduleButton: {
+        backgroundColor: '#6c5ce7',
     },
     actionButtonText: {
         color: '#fff',
         fontWeight: '600',
+        fontSize: 12,
+        marginLeft: 5
+    },
+    scheduledBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#e8f5e9',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 6,
+        marginVertical: 5,
+        minWidth: '30%'
+    },
+    scheduledText: {
+        color: '#28a745',
+        fontWeight: '600',
+        fontSize: 12,
+        marginLeft: 5
     },
     emptyContainer: {
         flex: 1,
@@ -648,8 +843,9 @@ const styles = StyleSheet.create({
         color: '#666',
         textAlign: 'center',
     },
-    listEmptyContainer: {
+    emptyListContainer: {
         flex: 1,
+        justifyContent: 'center',
     },
     modalOverlay: {
         flex: 1,

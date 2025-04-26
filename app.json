@@ -1,7 +1,27 @@
 {
   "expo": {
-    "name": "cong-app",
+    "name": "MUNTINLUPA DISTRICT OFFICE",
     "slug": "cong-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "runtimeVersion": "1.0.0",
+    "jsEngine": "hermes",
+    
+    "icon": "./assets/app-icon.png",
+    "splash": {
+      "image": "./assets/app-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    
+    "assetBundlePatterns": ["**/*"],
+    
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/97e74b8a-1220-4109-b05b-3a226837a558"
+    },
+    
     "plugins": [
       [
         "expo-image-picker",
@@ -25,6 +45,7 @@
           }
         }
       ],
+      ["expo-notifications"],
       [
         "react-native-background-fetch",
         {
@@ -34,32 +55,23 @@
       [
         "expo-secure-store",
         {
-          "androidBlockedEncryptionTypes": [
-            "AES"
-          ]
+          "androidBlockedEncryptionTypes": ["AES"]
+        }
+      ],
+      [
+        "expo-document-picker",
+        {
+          "iCloudContainerEnvironment": "Production"
         }
       ]
     ],
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
-    "updates": {
-      "fallbackToCacheTimeout": 0,
-      "url": "https://u.expo.dev/97e74b8a-1220-4109-b05b-3a226837a558"
-    },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    
     "android": {
+      "package": "com.allencrer.congapp",
+      "versionCode": 1,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/app-icon.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
@@ -74,21 +86,38 @@
         "android.permission.VIBRATE",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.WAKE_LOCK",
-        "android.permission.FOREGROUND_SERVICE"
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.DOWNLOAD_WITHOUT_NOTIFICATION",
+        "android.permission.ACCESS_NETWORK_STATE"
       ],
-      "package": "com.allencrer.congapp",
-      "versionCode": 1
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "content",
+              "mimeType": "*/*"
+            },
+            {
+              "scheme": "file",
+              "mimeType": "*/*"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
+    
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "runtimeVersion": "1.0.0",
-    "jsEngine": "hermes",
+    
     "extra": {
       "eas": {
         "projectId": "9f670d69-c1bd-428c-8f91-470eaa7b613b"
       }
     },
+    
     "owner": "allencrer"
   }
 }

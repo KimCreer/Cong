@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from "react";
 import {
   View,
@@ -7,7 +8,6 @@ import {
   TouchableOpacity,
   ScrollView,
   TextInput,
-  Switch,
   Alert,
   TouchableWithoutFeedback,
   Keyboard,
@@ -20,28 +20,43 @@ import {
 import { FontAwesome5 } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from 'expo-image-picker';
-import { CLOUDINARY_URL, CLOUDINARY_UPLOAD_PRESET } from '../../../data/cloudinaryConfig';
 
-// Date Utilities
+// Date Utilities with proper formatting
 const formatDate = (date, formatStr) => {
+  if (!date) return "";
+  
   const d = new Date(date);
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const fullDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const fullDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const fullMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+  const pad = (num) => String(num).padStart(2, '0');
 
   return formatStr
     .replace('yyyy', d.getFullYear())
-    .replace('MM', String(d.getMonth() + 1).padStart(2, '0'))
-    .replace('dd', String(d.getDate()).padStart(2, '0'))
-    .replace('EEE', days[d.getDay() - 1] || '')
-    .replace('EEEE', fullDays[d.getDay() - 1] || '')
+    .replace('MM', pad(d.getMonth() + 1))
+    .replace('dd', pad(d.getDate()))
+    .replace('EEE', days[d.getDay()])
+    .replace('EEEE', fullDays[d.getDay()])
     .replace('MMM', months[d.getMonth()])
     .replace('MMMM', fullMonths[d.getMonth()])
     .replace('d', d.getDate());
 };
 
+const formatTime = (date) => {
+  if (!date) return "";
+  
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const hour12 = hours % 12 || 12;
+  
+  return `${hour12}:${String(minutes).padStart(2, '0')} ${ampm}`;
+};
+
 const isSameDay = (date1, date2) => {
+  if (!date1 || !date2) return false;
   const d1 = new Date(date1);
   const d2 = new Date(date2);
   return (
@@ -63,6 +78,14 @@ const addMonths = (date, months) => {
   return result;
 };
 
+// Check if date is in the past
+const isPastDate = (date) => {
+  if (!date) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Remove time part for accurate comparison
+  return date < today;
+};
+
 // Holidays and Weekends
 const HOLIDAYS = [
   '01-01', '01-29', '04-01', '04-09', '04-17', 
@@ -71,8 +94,8 @@ const HOLIDAYS = [
   '12-08', '12-24', '12-25', '12-30', '12-31'
 ];
 
-const isHoliday = (date) => HOLIDAYS.includes(formatDate(date, 'MM-dd'));
-const isWeekend = (date) => date.getDay() === 0 || date.getDay() === 6;
+const isHoliday = (date) => date ? HOLIDAYS.includes(formatDate(date, 'MM-dd')) : false;
+const isWeekend = (date) => date ? date.getDay() === 0 || date.getDay() === 6 : false;
 
 const WORKING_HOURS = {
   start: 8,    // 8 AM
@@ -86,29 +109,65 @@ const WeekCalendar = ({ selectedDate, onSelectDate, existingAppointments, curren
   const today = new Date();
   const days = [];
   
-  for (let i = 1; i <= 5; i++) {
-    const date = addDays(today, i - today.getDay());
-    days.push(date);
+  // Get the next 5 weekdays starting from today
+  let currentDay = new Date(today);
+  let daysAdded = 0;
+  
+  while (daysAdded < 5) {
+    if (currentDay.getDay() !== 0 && currentDay.getDay() !== 6) {
+      days.push(new Date(currentDay));
+      daysAdded++;
+    }
+    currentDay = addDays(currentDay, 1);
   }
 
   const hasAppointmentOnDay = (date) => {
-    if (!existingAppointments || !currentUserId) return false;
+    if (!existingAppointments || !currentUserId || !date) return false;
+    
     const dateStr = formatDate(date, 'yyyy-MM-dd');
-    return existingAppointments.some(appt => 
-      appt.userId === currentUserId && 
-      formatDate(new Date(appt.date), 'yyyy-MM-dd') === dateStr
-    );
+    
+    return existingAppointments.some(appt => {
+      // Skip if no date property
+      if (!appt.date) return false;
+      
+      // Check if same user and same date
+      const isSameUser = appt.userId === currentUserId;
+      const isSameDate = formatDate(new Date(appt.date), 'yyyy-MM-dd') === dateStr;
+      
+      // If it's a courtesy appointment, only check date
+      if (appt.isCourtesy) {
+        return isSameUser && isSameDate;
+      }
+      
+      // For regular appointments, check time if available
+      if (!appt.time) return isSameUser && isSameDate;
+      
+      // Parse the appointment time
+      const [timePart, period] = appt.time.split(' ');
+      const [hours, minutes] = timePart.split(':');
+      
+      let hour = parseInt(hours);
+      if (period === 'PM' && hour < 12) hour += 12;
+      if (period === 'AM' && hour === 12) hour = 0;
+      
+      const appointmentTime = new Date(appt.date);
+      appointmentTime.setHours(hour, parseInt(minutes), 0, 0);
+      
+      // Check if within 30 minutes of existing appointment
+      const timeDiff = Math.abs(new Date(date).getTime() - appointmentTime.getTime());
+      return isSameUser && isSameDate && timeDiff < 30 * 60 * 1000;
+    });
   };
 
   return (
     <View style={styles.weekCalendar}>
       {days.map((date) => {
         const dateStr = formatDate(date, 'yyyy-MM-dd');
-        const isSelected = dateStr === selectedDate;
+        const isSelected = selectedDate && isSameDay(date, new Date(selectedDate));
         const dayName = formatDate(date, 'EEE');
         const dayNumber = formatDate(date, 'd');
         const isToday = isSameDay(date, today);
-        const isUnavailable = isWeekend(date) || isHoliday(date);
+        const isUnavailable = isWeekend(date) || isHoliday(date) || isPastDate(date);
         const hasAppointment = hasAppointmentOnDay(date);
 
         let dayColor = '#4CAF50';
@@ -146,8 +205,11 @@ const WeekCalendar = ({ selectedDate, onSelectDate, existingAppointments, curren
                 Booked
               </Text>
             )}
-            {isUnavailable && (
-              <Text style={styles.unavailableText}>Unavl</Text>
+            {isPastDate(date) && (
+              <Text style={styles.unavailableText}>Past</Text>
+            )}
+            {isUnavailable && !isPastDate(date) && (
+              <Text style={styles.unavailableText}>Unavble</Text>
             )}
           </TouchableOpacity>
         );
@@ -168,7 +230,9 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
     const firstDay = new Date(year, month, 1).getDay();
     const days = [];
     
-    for (let i = 1; i < firstDay; i++) days.push(null);
+    // Add empty days for alignment
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    // Add actual days
     for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
     
     return days;
@@ -178,22 +242,51 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
   
   const hasAppointmentOnDay = (date) => {
     if (!existingAppointments || !currentUserId || !date) return false;
+    
     const dateStr = formatDate(date, 'yyyy-MM-dd');
-    return existingAppointments.some(appt => 
-      appt.userId === currentUserId && 
-      formatDate(new Date(appt.date), 'yyyy-MM-dd') === dateStr
-    );
+    
+    return existingAppointments.some(appt => {
+      // Skip if no date property
+      if (!appt.date) return false;
+      
+      // Check if same user and same date
+      const isSameUser = appt.userId === currentUserId;
+      const isSameDate = formatDate(new Date(appt.date), 'yyyy-MM-dd') === dateStr;
+      
+      // If it's a courtesy appointment, only check date
+      if (appt.isCourtesy) {
+        return isSameUser && isSameDate;
+      }
+      
+      // For regular appointments, check time if available
+      if (!appt.time) return isSameUser && isSameDate;
+      
+      // Parse the appointment time
+      const [timePart, period] = appt.time.split(' ');
+      const [hours, minutes] = timePart.split(':');
+      
+      let hour = parseInt(hours);
+      if (period === 'PM' && hour < 12) hour += 12;
+      if (period === 'AM' && hour === 12) hour = 0;
+      
+      const appointmentTime = new Date(appt.date);
+      appointmentTime.setHours(hour, parseInt(minutes), 0, 0);
+      
+      // Check if within 30 minutes of existing appointment
+      const timeDiff = Math.abs(new Date(date).getTime() - appointmentTime.getTime());
+      return isSameUser && isSameDate && timeDiff < 30 * 60 * 1000;
+    });
   };
   
   const renderDay = (date, index) => {
     if (!date) return <View key={`empty-${index}`} style={styles.monthEmptyDay} />;
     
     const dateStr = formatDate(date, 'yyyy-MM-dd');
-    const isSelected = dateStr === selectedDate;
+    const isSelected = selectedDate && isSameDay(date, new Date(selectedDate));
     const dayNumber = formatDate(date, 'd');
     const isToday = isSameDay(date, today);
     const isWeekday = date.getDay() >= 1 && date.getDay() <= 5;
-    const isUnavailable = !isWeekday || isHoliday(date);
+    const isUnavailable = !isWeekday || isHoliday(date) || isPastDate(date);
     const hasAppointment = hasAppointmentOnDay(date);
     
     let dayColor = '#4CAF50';
@@ -224,6 +317,9 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
             •
           </Text>
         )}
+        {isPastDate(date) && !isWeekend(date) && (
+          <Text style={[styles.unavailableText, { fontSize: 8 }]}>Past</Text>
+        )}
       </TouchableOpacity>
     );
   };
@@ -243,10 +339,10 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
       </View>
       
       <View style={styles.monthWeekdays}>
-        {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => (
+        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
           <Text key={i} style={[
             styles.monthWeekday,
-            i >= 5 && styles.weekendText
+            i === 0 || i === 6 ? styles.weekendText : null
           ]}>
             {day}
           </Text>
@@ -265,9 +361,9 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
   const [formData, setFormData] = useState({
     type: "",
     purpose: "",
-    date: new Date(),
-    time: "09:00 AM",
-    timePickerValue: new Date(),
+    date: null,
+    time: "",
+    timePickerValue: null,
     patientName: "",
     processorName: "",
     medicalDetails: "",
@@ -288,11 +384,12 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
   });
 
   const appointmentTypes = [
-    { id: 1, name: "Solicitation", icon: "hand-holding-usd" },
-    { id: 2, name: "Courtesy", icon: "handshake" },
-    { id: 3, name: "Invitation", icon: "calendar-alt" },
-    { id: 4, name: "Finance (Medical)", icon: "file-medical" },
+    { id: 1, name: "Courtesy (VIP)", icon: "handshake" },
+    { id: 2, name: "Finance (Medical)", icon: "file-medical" },
   ];
+
+  // Helper function to check if current type is courtesy
+  const isCourtesyAppointment = () => formData.type === "Courtesy (VIP)";
 
   // Initialize form
   useEffect(() => {
@@ -300,8 +397,8 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
       setFormData({
         type: initialData.type,
         purpose: initialData.purpose,
-        date: initialData.date ? new Date(initialData.date) : new Date(),
-        time: initialData.time || "09:00 AM",
+        date: initialData.date ? new Date(initialData.date) : null,
+        time: initialData.time || "",
         timePickerValue: initialData.time ? (() => {
           const [hours, minutesPart] = initialData.time.split(":");
           let [minutes, period] = minutesPart.split(" ");
@@ -312,7 +409,7 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
           timeDate.setHours(hour);
           timeDate.setMinutes(parseInt(minutes));
           return timeDate;
-        })() : new Date(),
+        })() : null,
         patientName: initialData.patientName || "",
         processorName: initialData.processorName || "",
         medicalDetails: initialData.medicalDetails || "",
@@ -344,9 +441,9 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
     setFormData({
       type: "",
       purpose: "",
-      date: new Date(),
-      time: "09:00 AM",
-      timePickerValue: new Date(),
+      date: null,
+      time: "",
+      timePickerValue: null,
       patientName: "",
       processorName: "",
       medicalDetails: "",
@@ -374,55 +471,132 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
     setUiState(prev => ({ ...prev, [field]: value }));
   };
 
-  // Cloudinary Image Upload
-  const uploadImageToCloudinary = async (imageUri, type) => {
-    if (!imageUri) return null;
+  // Form Validation
+  const validateForm = () => {
+    if (!formData.type) {
+      Alert.alert("Error", "Please select appointment type");
+      return false;
+    }
+    
+    if (!formData.purpose.trim()) {
+      Alert.alert("Error", "Please enter purpose");
+      return false;
+    }
+    
+    // Skip date/time validation for courtesy appointments
+    if (!isCourtesyAppointment()) {
+      if (!formData.date) {
+        Alert.alert("Error", "Please select a date");
+        return false;
+      }
+      
+      // Ensure date is a valid Date object
+      const dateObj = new Date(formData.date);
+      if (isNaN(dateObj.getTime())) {
+        Alert.alert("Error", "Invalid date selected");
+        return false;
+      }
+      
+      if (isPastDate(dateObj)) {
+        Alert.alert("Error", "You cannot schedule appointments for past dates");
+        return false;
+      }
+      
+      if (!formData.time) {
+        Alert.alert("Error", "Please select a time");
+        return false;
+      }
+    }
+    
+    if (formData.type === "Finance (Medical)") {
+      if (!formData.patientName.trim()) {
+        Alert.alert("Error", "Please enter patient name");
+        return false;
+      }
+      if (!formData.processorName.trim()) {
+        Alert.alert("Error", "Please enter processor name");
+        return false;
+      }
+      if (!formData.selfieUri) {
+        Alert.alert("Error", "Please take a selfie");
+        return false;
+      }
+    }
+    
+    return true;
+  };
 
-    handleUiChange('isUploading', true);
-    handleUiChange('uploadProgress', 0);
-    handleUiChange('currentUpload', type);
-
+  // Form Submission
+  const handleSubmit = async () => {
+    if (!validateForm()) return;
+    if (uiState.isUploading) {
+      Alert.alert("Please wait", "Upload in progress");
+      return;
+    }
+  
+    handleUiChange('isLoading', true);
+    
     try {
-      const formData = new FormData();
-      const filename = imageUri.substring(imageUri.lastIndexOf("/") + 1);
-      
-      formData.append('file', {
-        uri: imageUri,
-        type: 'image/jpeg',
-        name: filename,
-      });
-      formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-      formData.append('folder', 'appointments');
-
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', CLOUDINARY_URL);
-      
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const progress = (event.loaded / event.total) * 100;
-          handleUiChange('uploadProgress', progress);
-        }
+      // Prepare appointment data
+      const appointmentData = {
+        type: formData.type,
+        purpose: formData.purpose,
+        status: "Pending",
+        createdAt: new Date().toISOString(),
+        imageUrl: formData.imageUri,
+        isCourtesy: isCourtesyAppointment(),
+        // Ensure date is properly formatted
+        ...(!isCourtesyAppointment() && {
+          date: new Date(formData.date), // Convert to Date object
+          time: formData.time,
+        }),
+        ...(uiState.isReschedule && uiState.originalAppointmentId && { 
+          id: uiState.originalAppointmentId 
+        }),
+        ...(formData.type === "Finance (Medical)" && {
+          patientName: formData.patientName,
+          processorName: formData.processorName,
+          medicalDetails: formData.medicalDetails,
+          selfieUrl: formData.selfieUri,
+        }),
       };
-
-      const cloudinaryResponse = await new Promise((resolve, reject) => {
-        xhr.onload = () => {
-          if (xhr.status === 200) {
-            resolve(JSON.parse(xhr.responseText));
-          } else {
-            reject(new Error('Upload failed'));
-          }
-        };
-        xhr.onerror = () => reject(new Error('Upload failed'));
-        xhr.send(formData);
-      });
-
-      return cloudinaryResponse.secure_url;
+      
+      onSubmit(appointmentData);
+      resetForm();
+      onClose();
     } catch (error) {
-      console.error("Image upload error:", error);
-      throw error;
+      console.error("Submission error:", error);
+      Alert.alert("Error", "Failed to submit appointment");
     } finally {
-      handleUiChange('isUploading', false);
-      handleUiChange('currentUpload', null);
+      handleUiChange('isLoading', false);
+    }
+  };
+
+  // Date/Time Handling
+  const onDateChange = (event, selectedDate) => {
+    const currentDate = selectedDate || formData.date;
+    handleUiChange('showDatePicker', Platform.OS === 'ios');
+    
+    if (isPastDate(currentDate)) {
+      Alert.alert("Past Date", "You cannot select past dates for appointments");
+      return;
+    }
+    
+    if (isHoliday(currentDate)) {
+      Alert.alert("Holiday", "Selected date is a holiday. Please choose another date.");
+      return;
+    }
+    
+    handleChange('date', currentDate);
+  };
+
+  const onTimeChange = (event, selectedTime) => {
+    const currentTime = selectedTime || formData.timePickerValue;
+    handleUiChange('showTimePicker', Platform.OS === 'ios');
+    
+    if (currentTime) {
+      handleChange('timePickerValue', currentTime);
+      handleChange('time', formatTime(currentTime));
     }
   };
 
@@ -463,150 +637,6 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
     }
   };
 
-  // Form Validation
-  const validateForm = () => {
-    if (!formData.type) {
-      Alert.alert("Error", "Please select appointment type");
-      return false;
-    }
-    
-    if (!formData.purpose.trim()) {
-      Alert.alert("Error", "Please enter purpose");
-      return false;
-    }
-    
-    if (formData.type === "Finance (Medical)") {
-      if (!formData.patientName.trim()) {
-        Alert.alert("Error", "Please enter patient name");
-        return false;
-      }
-      if (!formData.processorName.trim()) {
-        Alert.alert("Error", "Please enter processor name");
-        return false;
-      }
-      if (!formData.selfieUri) {
-        Alert.alert("Error", "Please take a selfie");
-        return false;
-      }
-    }
-    
-    return true;
-  };
-
-  // Form Submission
-  const handleSubmit = async () => {
-    if (!validateForm()) return;
-    if (uiState.isUploading) {
-      Alert.alert("Please wait", "Upload in progress");
-      return;
-    }
-
-    handleUiChange('isLoading', true);
-    
-    try {
-      // Upload images
-      let imageUrl = null;
-      let selfieUrl = null;
-
-      if (formData.imageUri) {
-        try {
-          imageUrl = await uploadImageToCloudinary(formData.imageUri, 'document');
-        } catch (error) {
-          const shouldContinue = await new Promise((resolve) => {
-            Alert.alert(
-              "Upload Failed",
-              "Would you like to continue without the document?",
-              [
-                { text: "Cancel", onPress: () => resolve(false) },
-                { text: "Continue", onPress: () => resolve(true) }
-              ]
-            );
-          });
-          if (!shouldContinue) {
-            handleUiChange('isLoading', false);
-            return;
-          }
-        }
-      }
-
-      if (formData.selfieUri) {
-        try {
-          selfieUrl = await uploadImageToCloudinary(formData.selfieUri, 'selfie');
-        } catch (error) {
-          const shouldContinue = await new Promise((resolve) => {
-            Alert.alert(
-              "Upload Failed",
-              "Would you like to continue without the selfie?",
-              [
-                { text: "Cancel", onPress: () => resolve(false) },
-                { text: "Continue", onPress: () => resolve(true) }
-              ]
-            );
-          });
-          if (!shouldContinue) {
-            handleUiChange('isLoading', false);
-            return;
-          }
-        }
-      }
-
-      // Prepare appointment data
-      const appointmentData = {
-        type: formData.type,
-        purpose: formData.purpose,
-        date: formData.date.toISOString(),
-        time: formData.time,
-        status: "Pending",
-        createdAt: new Date().toISOString(),
-        imageUrl: imageUrl,
-        ...(uiState.isReschedule && uiState.originalAppointmentId && { id: uiState.originalAppointmentId }),
-        ...(formData.type === "Finance (Medical)" && {
-          patientName: formData.patientName,
-          processorName: formData.processorName,
-          medicalDetails: formData.medicalDetails,
-          selfieUrl: selfieUrl,
-        }),
-      };
-      
-      onSubmit(appointmentData);
-      resetForm();
-      onClose();
-    } catch (error) {
-      console.error("Submission error:", error);
-      Alert.alert("Error", "Failed to submit appointment");
-    } finally {
-      handleUiChange('isLoading', false);
-    }
-  };
-
-  // Date/Time Handling
-  const onDateChange = (event, selectedDate) => {
-    const currentDate = selectedDate || formData.date;
-    handleUiChange('showDatePicker', Platform.OS === 'ios');
-    
-    if (isHoliday(currentDate)) {
-      Alert.alert("Holiday", "Selected date is a holiday. Please choose another date.");
-      return;
-    }
-    
-    handleChange('date', currentDate);
-  };
-
-  const onTimeChange = (event, selectedTime) => {
-    const currentTime = selectedTime || formData.timePickerValue;
-    handleUiChange('showTimePicker', Platform.OS === 'ios');
-    
-    const hours = currentTime.getHours();
-    const minutes = currentTime.getMinutes();
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    const hour12 = hours % 12 || 12;
-    const minutesStr = minutes < 10 ? `0${minutes}` : minutes;
-    const newTime = `${hour12}:${minutesStr} ${ampm}`;
-    
-    handleChange('timePickerValue', currentTime);
-    handleChange('time', newTime);
-  };
-
   // Render Functions
   const renderTypeButtons = () => (
     <View style={styles.typeGrid}>
@@ -639,7 +669,6 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
   );
 
   const renderImageSection = (uri, onPress, iconName, buttonText) => {
-    const isCurrentUpload = uiState.currentUpload === buttonText.toLowerCase();
     return (
       <View style={styles.imageSection}>
         <TouchableOpacity 
@@ -673,16 +702,158 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
             </TouchableOpacity>
           </View>
         )}
-        
-        {isCurrentUpload && uiState.isUploading && (
-          <View style={styles.progressContainer}>
-            <View style={[styles.progressBar, { width: `${uiState.uploadProgress}%` }]} />
-            <Text style={styles.progressText}>{Math.round(uiState.uploadProgress)}% Uploaded</Text>
-          </View>
-        )}
       </View>
     );
   };
+
+  const renderCalendarSection = () => (
+    <View style={styles.formSection}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Select Date</Text>
+        {!formData.date && (
+          <Text style={styles.requiredIndicator}>* Required</Text>
+        )}
+      </View>
+      
+      {formData.date && (
+        <View style={styles.selectedDateContainer}>
+          <FontAwesome5 name="calendar-check" size={16} color="#4CAF50" />
+          <Text style={styles.selectedDateText}>
+            {formatDate(formData.date, 'EEEE, MMMM d, yyyy')}
+          </Text>
+        </View>
+      )}
+      
+      <View style={styles.calendarToggle}>
+        <TouchableOpacity 
+          onPress={() => handleUiChange('calendarView', 'week')}
+          style={[
+            styles.toggleButton, 
+            uiState.calendarView === 'week' && styles.activeToggle
+          ]}
+        >
+          <Text style={[
+            styles.toggleText, 
+            uiState.calendarView === 'week' && styles.activeToggleText
+          ]}>
+            Week View
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          onPress={() => handleUiChange('calendarView', 'month')}
+          style={[
+            styles.toggleButton, 
+            uiState.calendarView === 'month' && styles.activeToggle
+          ]}
+        >
+          <Text style={[
+            styles.toggleText, 
+            uiState.calendarView === 'month' && styles.activeToggleText
+          ]}>
+            Month View
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.calendarContainer}>
+        {uiState.calendarView === 'week' ? (
+          <WeekCalendar
+            selectedDate={formData.date ? formatDate(formData.date, 'yyyy-MM-dd') : null}
+            onSelectDate={(dateStr) => {
+              const [year, month, day] = dateStr.split('-');
+              const newDate = new Date(year, month - 1, day);
+              handleChange('date', newDate);
+            }}
+            existingAppointments={existingAppointments}
+            currentUserId={currentUserId}
+          />
+        ) : (
+          <MonthCalendar
+            selectedDate={formData.date ? formatDate(formData.date, 'yyyy-MM-dd') : null}
+            onSelectDate={(dateStr) => {
+              const [year, month, day] = dateStr.split('-');
+              const newDate = new Date(year, month - 1, day);
+              handleChange('date', newDate);
+            }}
+            existingAppointments={existingAppointments}
+            currentUserId={currentUserId}
+          />
+        )}
+      </View>
+    </View>
+  );
+
+  const renderTimeSection = () => (
+    <View style={styles.formSection}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Select Time</Text>
+        {!formData.time && (
+          <Text style={styles.requiredIndicator}>* Required</Text>
+        )}
+      </View>
+      
+      {formData.time && (
+        <View style={styles.selectedTimeContainer}>
+          <FontAwesome5 name="clock" size={16} color="#4CAF50" />
+          <Text style={styles.selectedTimeText}>
+            {formData.time}
+          </Text>
+        </View>
+      )}
+      
+      <View style={styles.cardContainer}>
+        {isWeekend(formData.date || new Date()) ? (
+          <View style={styles.warningContainer}>
+            <FontAwesome5 name="exclamation-triangle" size={16} color="#FFA500" />
+            <Text style={styles.warningText}>
+              Weekend appointments: 8AM-5PM only
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.infoContainer}>
+            <FontAwesome5 name="info-circle" size={16} color="#003580" />
+            <Text style={styles.infoText}>
+              Weekdays: 8AM-5PM (Break: 11:30AM-12:30PM)
+            </Text>
+          </View>
+        )}
+        
+        <TouchableOpacity
+          style={[
+            styles.timePickerButton,
+            !formData.time && styles.unselectedTimeButton
+          ]}
+          onPress={() => handleUiChange('showTimePicker', true)}
+          disabled={uiState.isUploading}
+          activeOpacity={0.7}
+        >
+          <FontAwesome5 
+            name="clock" 
+            size={16} 
+            color={uiState.isUploading ? "#999" : (!formData.time ? "#F44336" : "#003580")} 
+          />
+          <Text style={[
+            styles.datePickerText,
+            uiState.isUploading && styles.disabledText,
+            !formData.time && styles.unselectedTimeText
+          ]}>
+            {formData.time || "Select a time"}
+          </Text>
+        </TouchableOpacity>
+
+        {uiState.showTimePicker && (
+          <DateTimePicker
+            value={formData.timePickerValue || new Date()}
+            mode="time"
+            is24Hour={false}
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={onTimeChange}
+            minuteInterval={15}
+          />
+        )}
+      </View>
+    </View>
+  );
 
   return (
     <Modal visible={visible} transparent animationType="slide">
@@ -733,66 +904,26 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
                   />
                 </View>
 
-                {/* Calendar Section */}
-                <View style={styles.formSection}>
-                  <Text style={styles.sectionTitle}>Select Date</Text>
-                  <View style={styles.calendarToggle}>
-                    <TouchableOpacity 
-                      onPress={() => handleUiChange('calendarView', 'week')}
-                      style={[
-                        styles.toggleButton, 
-                        uiState.calendarView === 'week' && styles.activeToggle
-                      ]}
-                    >
-                      <Text style={[
-                        styles.toggleText, 
-                        uiState.calendarView === 'week' && styles.activeToggleText
-                      ]}>
-                        Week
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      onPress={() => handleUiChange('calendarView', 'month')}
-                      style={[
-                        styles.toggleButton, 
-                        uiState.calendarView === 'month' && styles.activeToggle
-                      ]}
-                    >
-                      <Text style={[
-                        styles.toggleText, 
-                        uiState.calendarView === 'month' && styles.activeToggleText
-                      ]}>
-                        Month
-                      </Text>
-                    </TouchableOpacity>
+                {/* Info for courtesy appointments */}
+                {isCourtesyAppointment() && (
+                  <View style={styles.noteContainer}>
+                    <FontAwesome5 name="info-circle" size={16} color="#003580" />
+                    <Text style={styles.noteText}>
+                      For courtesy appointments, our office will contact you to schedule the date and time.
+                    </Text>
                   </View>
+                )}
 
-                  <View style={styles.calendarContainer}>
-                    {uiState.calendarView === 'week' ? (
-                      <WeekCalendar
-                        selectedDate={formatDate(formData.date, 'yyyy-MM-dd')}
-                        onSelectDate={(dateStr) => {
-                          const [year, month, day] = dateStr.split('-');
-                          const newDate = new Date(year, month - 1, day);
-                          handleChange('date', newDate);
-                        }}
-                        existingAppointments={existingAppointments}
-                        currentUserId={currentUserId}
-                      />
-                    ) : (
-                      <MonthCalendar
-                        selectedDate={formatDate(formData.date, 'yyyy-MM-dd')}
-                        onSelectDate={(dateStr) => {
-                          const [year, month, day] = dateStr.split('-');
-                          const newDate = new Date(year, month - 1, day);
-                          handleChange('date', newDate);
-                        }}
-                        existingAppointments={existingAppointments}
-                        currentUserId={currentUserId}
-                      />
-                    )}
-                  </View>
-                </View>
+                {/* Calendar and Time Sections (only for non-courtesy) */}
+                {!isCourtesyAppointment() && (
+                  <>
+                    {/* Calendar Section */}
+                    {renderCalendarSection()}
+                    
+                    {/* Time Selection */}
+                    {renderTimeSection()}
+                  </>
+                )}
 
                 {/* Medical Information (Conditional) */}
                 {formData.type === "Finance (Medical)" && (
@@ -844,58 +975,6 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
                   <Text style={styles.sectionTitle}>Supporting Documents</Text>
                   <Text style={styles.sectionSubtitle}>Attach any relevant files</Text>
                   {renderImageSection(formData.imageUri, () => selectImage('document'), "paperclip", "Document")}
-                </View>
-
-                {/* Time Selection */}
-                <View style={styles.formSection}>
-                  <Text style={styles.sectionTitle}>Select Time</Text>
-                  <View style={styles.cardContainer}>
-                    {isWeekend(formData.date) ? (
-                      <View style={styles.warningContainer}>
-                        <FontAwesome5 name="exclamation-triangle" size={16} color="#FFA500" />
-                        <Text style={styles.warningText}>
-                          Weekend appointments: 8AM-5PM only
-                        </Text>
-                      </View>
-                    ) : (
-                      <View style={styles.infoContainer}>
-                        <FontAwesome5 name="info-circle" size={16} color="#003580" />
-                        <Text style={styles.infoText}>
-                          Weekdays: 8AM-5PM (Break: 11:30AM-12:30PM)
-                        </Text>
-                      </View>
-                    )}
-                    
-                    <TouchableOpacity
-                      style={styles.timePickerButton}
-                      onPress={() => handleUiChange('showTimePicker', true)}
-                      disabled={uiState.isUploading}
-                      activeOpacity={0.7}
-                    >
-                      <FontAwesome5 
-                        name="clock" 
-                        size={16} 
-                        color={uiState.isUploading ? "#999" : "#003580"} 
-                      />
-                      <Text style={[
-                        styles.datePickerText,
-                        uiState.isUploading && styles.disabledText
-                      ]}>
-                        {formData.time}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {uiState.showTimePicker && (
-                      <DateTimePicker
-                        value={formData.timePickerValue}
-                        mode="time"
-                        is24Hour={false}
-                        display="default"
-                        onChange={onTimeChange}
-                        minuteInterval={15}
-                      />
-                    )}
-                  </View>
                 </View>
 
                 {/* Submit Button */}
@@ -990,17 +1069,62 @@ const styles = StyleSheet.create({
   formSection: {
     marginBottom: 24,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  requiredIndicator: {
+    fontSize: 13,
+    color: '#F44336',
+    fontStyle: 'italic',
+  },
+  selectedDateContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 15,
+  },
+  selectedDateText: {
+    marginLeft: 8,
+    color: '#2E7D32',
+    fontWeight: '500',
+  },
+  selectedTimeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  selectedTimeText: {
+    marginLeft: 8,
+    color: '#2E7D32',
+    fontWeight: '500',
+  },
+  unselectedTimeButton: {
+    borderColor: '#F44336',
+    borderWidth: 1.5,
+  },
+  unselectedTimeText: {
+    color: '#F44336',
+    fontStyle: 'italic',
+  },
   sectionTitle: {
     fontSize: 17,
     fontWeight: "700",
     color: "#003580",
-    marginBottom: 12,
+    marginBottom:12,
   },
   sectionSubtitle: {
     fontSize: 14,
     color: "#666",
     marginTop: -8,
-    marginBottom: 10,
+    marginBottom: 1,
   },
   typeGrid: {
     flexDirection: "row",
@@ -1122,23 +1246,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  progressContainer: {
-    marginTop: 8,
-    height: 12,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#4CAF50',
-  },
-  progressText: {
-    marginTop: 4,
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-  },
   timePickerButton: {
     flex: 1,
     flexDirection: "row",
@@ -1179,6 +1286,20 @@ const styles = StyleSheet.create({
     color: "#31708F",
     marginLeft: 10,
     fontSize: 14,
+  },
+  noteContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E6F2FF',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 20,
+  },
+  noteText: {
+    color: "#31708F",
+    marginLeft: 10,
+    fontSize: 14,
+    flex: 1,
   },
   submitButton: {
     backgroundColor: "#003580",
@@ -1268,6 +1389,7 @@ const styles = StyleSheet.create({
   },
   unavailableDay: {
     backgroundColor: '#F5F5F5',
+    opacity: 0.6,
   },
   dayName: {
     fontSize: 12,
@@ -1285,7 +1407,7 @@ const styles = StyleSheet.create({
   },
   unavailableText: {
     fontSize: 10,
-    color: '#999',
+    color: '#FF0000',
     marginTop: 2,
   },
   densityBadge: {

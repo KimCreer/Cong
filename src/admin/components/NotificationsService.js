@@ -130,6 +130,15 @@ export const sendPendingAppointmentNotification = async (count) => {
             }
         }
         
+        // Admin push token - assuming admin push token is already stored
+        const adminPushToken = await AsyncStorage.getItem('adminPushToken'); // Admin token saved in AsyncStorage
+
+        if (!adminPushToken) {
+            console.log('No admin push token found');
+            return;
+        }
+
+        // Send notification to admin even if app is not active
         await Notifications.scheduleNotificationAsync({
             content: {
                 title: 'Pending Appointments',

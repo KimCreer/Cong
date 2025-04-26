@@ -12,18 +12,28 @@ import {
     Keyboard,
     StatusBar,
     Modal,
+    BackHandler,
+    Linking
 } from "react-native";
 import { TextInput, RadioButton } from "react-native-paper";
-import firestore from "@react-native-firebase/firestore";
+import { getFirestore, collection, doc, setDoc, serverTimestamp } from '@react-native-firebase/firestore';
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import styles from './styles/DetailStyles';
 
 const { height, width } = Dimensions.get("window");
 
 export default function Detail({ route, navigation }) {
     const { uid } = route.params;
     
-    // Updated state with firstName and lastName
+    // Disable swipe back gesture
+    React.useLayoutEffect(() => {
+        navigation.setOptions({
+            gestureEnabled: false,
+        });
+    }, [navigation]);
+
+    // State variables
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
     const [email, setEmail] = useState("");
@@ -31,6 +41,8 @@ export default function Detail({ route, navigation }) {
     const [address, setAddress] = useState("");
     const [barangay, setBarangay] = useState("");
     const [step, setStep] = useState(1);
+    const [acceptedPrivacyAgreement, setAcceptedPrivacyAgreement] = useState(false);
+    const [showPrivacyModal, setShowPrivacyModal] = useState(false);
     const scrollViewRef = useRef(null);
 
     // Date of Birth State
@@ -42,11 +54,12 @@ export default function Detail({ route, navigation }) {
     const [tempMonth, setTempMonth] = useState(0);
     const [tempYear, setTempYear] = useState(new Date().getFullYear() - 18);
 
-    // Animation for step transitions
+    // Animation refs
     const fadeAnim = useState(new Animated.Value(1))[0];
     const slideAnim = useState(new Animated.Value(0))[0];
     const progressAnim = useState(new Animated.Value(0.5))[0];
     const modalAnim = useState(new Animated.Value(0))[0];
+    const privacyModalAnim = useState(new Animated.Value(0))[0];
 
     // Month names
     const monthNames = [
@@ -92,15 +105,42 @@ export default function Detail({ route, navigation }) {
         }
     }, [step]);
 
+    // Prevent hardware back button
+    useEffect(() => {
+        const backAction = () => {
+            if (step === 1) {
+                return true;
+            } else {
+                handleBack();
+                return true;
+            }
+        };
+
+        const backHandler = BackHandler.addEventListener(
+            'hardwareBackPress',
+            backAction
+        );
+
+        return () => backHandler.remove();
+    }, [step]);
+
     // Open date picker modal
     const openDateModal = () => {
-        // Set temp values to current selections
         setTempDay(day);
         setTempMonth(month);
         setTempYear(year);
-        
         setDateModalVisible(true);
         Animated.timing(modalAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+        }).start();
+    };
+
+    // Open privacy policy modal
+    const openPrivacyModal = () => {
+        setShowPrivacyModal(true);
+        Animated.timing(privacyModalAnim, {
             toValue: 1,
             duration: 300,
             useNativeDriver: true,
@@ -115,12 +155,22 @@ export default function Detail({ route, navigation }) {
             useNativeDriver: true,
         }).start(() => {
             if (save) {
-                // Save the temporary selections
                 setDay(tempDay);
                 setMonth(tempMonth);
                 setYear(tempYear);
             }
             setDateModalVisible(false);
+        });
+    };
+
+    // Close privacy policy modal
+    const closePrivacyModal = () => {
+        Animated.timing(privacyModalAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+        }).start(() => {
+            setShowPrivacyModal(false);
         });
     };
 
@@ -152,6 +202,10 @@ export default function Detail({ route, navigation }) {
                 }
                 if (!barangay.trim()) {
                     showError("Please select a barangay.");
+                    return false;
+                }
+                if (!acceptedPrivacyAgreement) {
+                    showError("Please accept the data privacy agreement to continue");
                     return false;
                 }
                 return true;
@@ -207,38 +261,38 @@ export default function Detail({ route, navigation }) {
         });
     };
 
-    // Save details to Firestore
+    // Save details to Firestore and navigate to Dashboard
     const saveDetails = async () => {
         if (!validateStep()) return;
-
+    
         try {
             const userData = {
                 firstName: firstName.trim(),
                 lastName: lastName.trim(),
+                email: email.trim(),
                 dob: `${year}-${(month + 1).toString().padStart(2, "0")}-${day.toString().padStart(2, "0")}`,
                 gender: gender.trim(),
                 address: address.trim(),
                 barangay: barangay.trim(),
-                updatedAt: firestore.FieldValue.serverTimestamp(),
+                privacyAgreementAccepted: true,
+                privacyAgreementDate: serverTimestamp(),
+                updatedAt: serverTimestamp(),
             };
-
-            if (email.trim()) {
-                userData.email = email.trim();
-            }
-
-            await firestore().collection("users").doc(uid).set(userData, { merge: true });
-
-            Alert.alert(
-                "Success", 
-                "Your details have been saved successfully!", 
-                [{ text: "Continue", onPress: () => navigation.navigate("Dashboard") }]
-            );
+    
+            const db = getFirestore();
+            await setDoc(doc(collection(db, "users"), uid), userData, { merge: true });
+    
+            navigation.reset({
+                index: 0,
+                routes: [{ name: 'Dashboard' }],
+            });
+            
         } catch (error) {
             console.error("Error saving details: ", error);
             Alert.alert("Error", "Failed to save details. Please try again.");
         }
     };
-
+    
     // Format date of birth for display
     const getFormattedDate = () => {
         return `${day} ${monthNames[month]} ${year}`;
@@ -251,13 +305,8 @@ export default function Detail({ route, navigation }) {
                 
                 {/* Header with Progress Bar */}
                 <View style={styles.header}>
-                    <TouchableOpacity 
-                        style={styles.backIcon} 
-                        onPress={() => navigation.goBack()}
-                    >
-                        <MaterialCommunityIcons name="arrow-left" size={24} color="#374151" />
-                    </TouchableOpacity>
-                    <Text style={styles.headerTitle}>Your Profile</Text>
+                    <View style={{ width: 24 }} />
+                    <Text style={styles.headerTitle}>Constituent Profile</Text>
                     <View style={styles.progressContainer}>
                         <View style={styles.progressBar}>
                             <Animated.View 
@@ -300,10 +349,10 @@ export default function Detail({ route, navigation }) {
                                     style={styles.input}
                                     placeholder="ex. Juan"
                                     error={!firstName.trim()}
-                                    left={<TextInput.Icon icon="account" color="#38BDF8" />}
+                                    left={<TextInput.Icon icon="account" color="#1E3A8A" />}
                                     theme={{ 
                                         colors: { 
-                                            primary: "#38BDF8", 
+                                            primary: "#1E3A8A", 
                                             background: "#FFFFFF",
                                             error: "#EF4444"
                                         } 
@@ -322,10 +371,10 @@ export default function Detail({ route, navigation }) {
                                     style={styles.input}
                                     placeholder="ex. Dela Cruz"
                                     error={!lastName.trim()}
-                                    left={<TextInput.Icon icon="account-outline" color="#38BDF8" />}
+                                    left={<TextInput.Icon icon="account-outline" color="#1E3A8A" />}
                                     theme={{ 
                                         colors: { 
-                                            primary: "#38BDF8", 
+                                            primary: "#1E3A8A", 
                                             background: "#FFFFFF",
                                             error: "#EF4444"
                                         } 
@@ -344,10 +393,10 @@ export default function Detail({ route, navigation }) {
                                     style={styles.input}
                                     placeholder="yourname@example.com"
                                     error={email.trim() && !/^\S+@\S+\.\S+$/.test(email.trim())}
-                                    left={<TextInput.Icon icon="email" color="#38BDF8" />}
+                                    left={<TextInput.Icon icon="email" color="#1E3A8A" />}
                                     theme={{ 
                                         colors: { 
-                                            primary: "#38BDF8", 
+                                            primary: "#1E3A8A", 
                                             background: "#FFFFFF",
                                             error: "#EF4444"
                                         } 
@@ -364,7 +413,7 @@ export default function Detail({ route, navigation }) {
                                     style={styles.datePickerButton}
                                     onPress={openDateModal}
                                 >
-                                    <MaterialCommunityIcons name="calendar" size={22} color="#38BDF8" />
+                                    <MaterialCommunityIcons name="calendar" size={22} color="#1E3A8A" />
                                     <Text style={styles.datePickerButtonText}>
                                         {getFormattedDate()}
                                     </Text>
@@ -402,7 +451,7 @@ export default function Detail({ route, navigation }) {
                                                 <RadioButton
                                                     value={value}
                                                     status={gender === value ? 'checked' : 'unchecked'}
-                                                    color="#38BDF8"
+                                                    color="#1E3A8A"
                                                     uncheckedColor="#6B7280"
                                                     onPress={() => setGender(value)}
                                                 />
@@ -411,621 +460,386 @@ export default function Detail({ route, navigation }) {
                                                         styles.genderText,
                                                         gender === value && styles.genderTextSelected
                                                     ]}
-                                                    >
-                                                        {value}
-                                                    </Text>
-                                                </View>
-                                                <MaterialCommunityIcons
-                                                    name={
-                                                        value === "Male" ? "gender-male" :
-                                                        value === "Female" ? "gender-female" :
-                                                        "gender-non-binary"
-                                                    }
-                                                    size={20}
-                                                    color={gender === value ? "#38BDF8" : "#6B7280"}
-                                                    style={styles.genderIcon}
-                                                />
-                                            </TouchableOpacity>
-                                        ))}
-                                    </View>
-                                </View>
-    
-                                {/* Address Section */}
-                                <View style={styles.inputContainer}>
-                                    <Text style={styles.label}>Street Address</Text>
-                                    <TextInput
-                                        mode="outlined"
-                                        value={address}
-                                        onChangeText={setAddress}
-                                        style={styles.input}
-                                        placeholder="Enter your complete street address"
-                                        error={address.trim().length < 3}
-                                        left={<TextInput.Icon icon="home" color="#38BDF8" />}
-                                        theme={{ 
-                                            colors: { 
-                                                primary: "#38BDF8", 
-                                                background: "#FFFFFF",
-                                                error: "#EF4444"
-                                            } 
-                                        }}
-                                        multiline
-                                    />
-                                    {address.trim().length < 3 && address.trim().length > 0 && (
-                                        <Text style={styles.errorText}>Address must be at least 3 characters</Text>
-                                    )}
-                                </View>
-    
-                                <View style={styles.inputContainer}>
-                                    <Text style={styles.label}>Barangay</Text>
-                                    <View style={styles.barangayContainer}>
-                                        {barangays.map((item, index) => (
-                                            <TouchableOpacity
-                                                key={index}
-                                                style={[
-                                                    styles.barangayOption,
-                                                    barangay === item && styles.barangaySelected
-                                                ]}
-                                                onPress={() => setBarangay(item)}
-                                            >
-                                                <Text 
-                                                    style={[
-                                                        styles.barangayText,
-                                                        barangay === item && styles.barangayTextSelected
-                                                    ]}
                                                 >
-                                                    {item}
+                                                    {value}
                                                 </Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </View>
-                                    {!barangay.trim() && (
-                                        <Text style={styles.errorText}>Please select a barangay</Text>
-                                    )}
+                                            </View>
+                                            <MaterialCommunityIcons
+                                                name={
+                                                    value === "Male" ? "gender-male" :
+                                                    value === "Female" ? "gender-female" :
+                                                    "gender-non-binary"
+                                                }
+                                                size={20}
+                                                color={gender === value ? "#1E3A8A" : "#6B7280"}
+                                                style={styles.genderIcon}
+                                            />
+                                        </TouchableOpacity>
+                                    ))}
                                 </View>
-                            </Animated.View>
-                        )}
-                    </ScrollView>
-    
-                    {/* Bottom Action Buttons */}
-                    <View style={styles.bottomActions}>
-                        {step > 1 && (
-                            <TouchableOpacity
-                                style={styles.backButton}
-                                onPress={handleBack}
-                            >
-                                <MaterialCommunityIcons name="arrow-left" size={20} color="#374151" />
-                                <Text style={styles.backButtonText}>Back</Text>
-                            </TouchableOpacity>
-                        )}
-                        
-                        <TouchableOpacity
-                            style={[styles.nextButton, step === 1 ? styles.nextButtonFull : {}]}
-                            onPress={step < 2 ? handleNext : saveDetails}
-                        >
-                            <LinearGradient
-                                colors={['#38BDF8', '#0284C7']}
-                                style={styles.gradientButton}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 0 }}
-                            >
-                                <Text style={styles.nextButtonText}>
-                                    {step < 2 ? "Next" : "Save"}
-                                </Text>
-                                {step < 2 ? (
-                                    <MaterialCommunityIcons name="arrow-right" size={20} color="#FFFFFF" />
-                                ) : (
-                                    <MaterialCommunityIcons name="check" size={20} color="#FFFFFF" />
-                                )}
-                            </LinearGradient>
-                        </TouchableOpacity>
-                    </View>
-    
-                    {/* Date Picker Modal */}
-                    <Modal
-                        visible={dateModalVisible}
-                        transparent={true}
-                        animationType="none"
-                        onRequestClose={() => closeDateModal(false)}
-                    >
-                        <TouchableWithoutFeedback onPress={() => closeDateModal(false)}>
-                            <View style={styles.modalOverlay}>
-                                <TouchableWithoutFeedback>
-                                    <Animated.View 
-                                        style={[
-                                            styles.modalContainer,
-                                            {
-                                                opacity: modalAnim,
-                                                transform: [
-                                                    { 
-                                                        translateY: modalAnim.interpolate({
-                                                            inputRange: [0, 1],
-                                                            outputRange: [300, 0]
-                                                        }) 
-                                                    }
-                                                ]
-                                            }
-                                        ]}
-                                    >
-                                        <View style={styles.modalHeader}>
-                                            <Text style={styles.modalTitle}>Select Date of Birth</Text>
-                                            <TouchableOpacity onPress={() => closeDateModal(false)}>
-                                                <MaterialCommunityIcons name="close" size={24} color="#374151" />
-                                            </TouchableOpacity>
-                                        </View>
-    
-                                        <View style={styles.datePickerContainer}>
-                                            {/* Day Picker */}
-                                            <View style={styles.dateColumn}>
-                                                <Text style={styles.dateColumnHeader}>Day</Text>
-                                                <ScrollView 
-                                                    showsVerticalScrollIndicator={false}
-                                                    style={styles.dateScrollView}
-                                                    contentContainerStyle={styles.dateScrollContent}
-                                                >
-                                                    {days.map((d) => (
-                                                        <TouchableOpacity
-                                                            key={`day-${d}`}
-                                                            style={[
-                                                                styles.dateItem,
-                                                                tempDay === d && styles.dateItemSelected
-                                                            ]}
-                                                            onPress={() => setTempDay(d)}
-                                                        >
-                                                            <Text 
-                                                                style={[
-                                                                    styles.dateItemText,
-                                                                    tempDay === d && styles.dateItemTextSelected
-                                                                ]}
-                                                            >
-                                                                {d}
-                                                            </Text>
-                                                        </TouchableOpacity>
-                                                    ))}
-                                                </ScrollView>
-                                            </View>
-    
-                                            {/* Month Picker */}
-                                            <View style={styles.dateColumn}>
-                                                <Text style={styles.dateColumnHeader}>Month</Text>
-                                                <ScrollView 
-                                                    showsVerticalScrollIndicator={false}
-                                                    style={styles.dateScrollView}
-                                                    contentContainerStyle={styles.dateScrollContent}
-                                                >
-                                                    {monthNames.map((m, index) => (
-                                                        <TouchableOpacity
-                                                            key={`month-${index}`}
-                                                            style={[
-                                                                styles.dateItem,
-                                                                tempMonth === index && styles.dateItemSelected
-                                                            ]}
-                                                            onPress={() => setTempMonth(index)}
-                                                        >
-                                                            <Text 
-                                                                style={[
-                                                                    styles.dateItemText,
-                                                                    tempMonth === index && styles.dateItemTextSelected
-                                                                ]}
-                                                            >
-                                                                {m}
-                                                            </Text>
-                                                        </TouchableOpacity>
-                                                    ))}
-                                                </ScrollView>
-                                            </View>
-    
-                                            {/* Year Picker */}
-                                            <View style={styles.dateColumn}>
-                                                <Text style={styles.dateColumnHeader}>Year</Text>
-                                                <ScrollView 
-                                                    showsVerticalScrollIndicator={false}
-                                                    style={styles.dateScrollView}
-                                                    contentContainerStyle={styles.dateScrollContent}
-                                                >
-                                                    {years.map((y) => (
-                                                        <TouchableOpacity
-                                                            key={`year-${y}`}
-                                                            style={[
-                                                                styles.dateItem,
-                                                                tempYear === y && styles.dateItemSelected
-                                                            ]}
-                                                            onPress={() => setTempYear(y)}
-                                                        >
-                                                            <Text 
-                                                                style={[
-                                                                    styles.dateItemText,
-                                                                    tempYear === y && styles.dateItemTextSelected
-                                                                ]}
-                                                            >
-                                                                {y}
-                                                            </Text>
-                                                        </TouchableOpacity>
-                                                    ))}
-                                                </ScrollView>
-                                            </View>
-                                        </View>
-    
-                                        <View style={styles.modalFooter}>
-                                            <TouchableOpacity 
-                                                style={styles.cancelButton}
-                                                onPress={() => closeDateModal(false)}
-                                            >
-                                                <Text style={styles.cancelButtonText}>Cancel</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity 
-                                                style={styles.confirmButton}
-                                                onPress={() => closeDateModal(true)}
-                                            >
-                                                <Text style={styles.confirmButtonText}>Confirm</Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    </Animated.View>
-                                </TouchableWithoutFeedback>
                             </View>
-                        </TouchableWithoutFeedback>
-                    </Modal>
-                </View>
-            </TouchableWithoutFeedback>
-        );
-    }
     
-    const styles = StyleSheet.create({
-        container: {
-            flex: 1,
-            backgroundColor: "#F9FAFB",
-        },
-        header: {
-            flexDirection: "row",
-            alignItems: "center",
-            paddingHorizontal: 20,
-            paddingTop: 15,
-            paddingBottom: 10,
-            backgroundColor: "#FFFFFF",
-            borderBottomWidth: 1,
-            borderBottomColor: "#E5E7EB",
-        },
-        backIcon: {
-            padding: 8,
-        },
-        headerTitle: {
-            fontSize: 18,
-            fontWeight: "600",
-            color: "#1F2937",
-            marginLeft: 10,
-        },
-        progressContainer: {
-            flex: 1,
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "flex-end",
-        },
-        progressBar: {
-            height: 8,
-            width: 100,
-            backgroundColor: "#E5E7EB",
-            borderRadius: 4,
-            marginRight: 8,
-            overflow: "hidden",
-        },
-        progressFill: {
-            height: "100%",
-            backgroundColor: "#38BDF8",
-            borderRadius: 4,
-        },
-        progressText: {
-            fontSize: 14,
-            fontWeight: "500",
-            color: "#4B5563",
-        },
-        scrollContainer: {
-            padding: 20,
-            paddingBottom: 100,
-        },
-        title: {
-            fontSize: 24,
-            fontWeight: "700",
-            color: "#1F2937",
-            marginBottom: 8,
-        },
-        subtitle: {
-            fontSize: 16,
-            color: "#6B7280",
-            marginBottom: 24,
-        },
-        inputContainer: {
-            marginBottom: 20,
-        },
-        label: {
-            fontSize: 16,
-            fontWeight: "500",
-            color: "#4B5563",
-            marginBottom: 8,
-        },
-        optionalText: {
-            fontSize: 14,
-            color: "#9CA3AF",
-            fontWeight: "400",
-        },
-        input: {
-            backgroundColor: "#FFFFFF",
-        },
-        errorText: {
-            fontSize: 12,
-            color: "#EF4444",
-            marginTop: 4,
-        },
-        datePickerButton: {
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: "#FFFFFF",
-            borderWidth: 1,
-            borderColor: "#D1D5DB",
-            borderRadius: 4,
-            padding: 12,
-        },
-        datePickerButtonText: {
-            flex: 1,
-            fontSize: 16,
-            color: "#1F2937",
-            marginLeft: 10,
-        },
-        genderContainer: {
-            flexDirection: "column",
-            gap: 10,
-        },
-        genderOption: {
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            backgroundColor: "#FFFFFF",
-            borderWidth: 1,
-            borderColor: "#D1D5DB",
-            borderRadius: 8,
-            padding: 12,
-        },
-        genderSelected: {
-            borderColor: "#38BDF8",
-            backgroundColor: "#F0F9FF",
-        },
-        radioWrapper: {
-            flexDirection: "row",
-            alignItems: "center",
-        },
-        genderText: {
-            fontSize: 16,
-            color: "#4B5563",
-            marginLeft: 8,
-        },
-        genderTextSelected: {
-            color: "#0284C7",
-            fontWeight: "500",
-        },
-        genderIcon: {
-            marginLeft: 10,
-        },
-        barangayContainer: {
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 10,
-        },
-        barangayOption: {
-            paddingHorizontal: 14,
-            paddingVertical: 8,
-            backgroundColor: "#FFFFFF",
-            borderWidth: 1,
-            borderColor: "#D1D5DB",
-            borderRadius: 20,
-        },
-        barangaySelected: {
-            borderColor: "#38BDF8",
-            backgroundColor: "#F0F9FF",
-        },
-        barangayText: {
-            fontSize: 14,
-            color: "#4B5563",
-        },
-        barangayTextSelected: {
-            color: "#0284C7",
-            fontWeight: "500",
-        },
-        bottomActions: {
-            position: "absolute",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            flexDirection: "row",
-            padding: 16,
-            backgroundColor: "#FFFFFF",
-            borderTopWidth: 1,
-            borderTopColor: "#E5E7EB",
-        },
-        backButton: {
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "center",
-            paddingHorizontal: 16,
-            paddingVertical: 12,
-            borderWidth: 1,
-            borderColor: "#D1D5DB",
-            borderRadius: 8,
-            marginRight: 12,
-        },
-        backButtonText: {
-            color: "#374151",
-            fontWeight: "500",
-            marginLeft: 8,
-        },
-        nextButton: {
-            flex: 1,
-            borderRadius: 8,
-            overflow: "hidden",
-        },
-        nextButtonFull: {
-            flex: 1,
-        },
-        gradientButton: {
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "center",
-            paddingVertical: 14,
-        },
-        nextButtonText: {
-            color: "#FFFFFF",
-            fontWeight: "600",
-            fontSize: 16,
-            marginRight: 8,
-        },
-        modalOverlay: {
-            flex: 1,
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-            justifyContent: "flex-end",
-        },
-        modalContainer: {
-            backgroundColor: "#FFFFFF",
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            padding: 20,
-            paddingBottom: 30,
-        },
-        modalHeader: {
-            flexDirection: "row",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 20,
-        },
-        modalTitle: {
-            fontSize: 18,
-            fontWeight: "600",
-            color: "#1F2937",
-        },
-        datePickerContainer: {
-            flexDirection: "row",
-            justifyContent: "space-between",
-            marginBottom: 20,
-        },
-        dateColumn: {
-            flex: 1,
-            marginHorizontal: 5,
-        },
-        dateColumnHeader: {
-            textAlign: "center",
-            fontSize: 14,
-            color: "#6B7280",
-            marginBottom: 10,
-            fontWeight: "500",
-        },
-        dateScrollView: {
-            height: 200,
-        },
-        dateScrollContent: {
-            paddingVertical: 10,
-        },
-        dateItem: {
-            paddingVertical: 10,
-            alignItems: "center",
-            justifyContent: "center",
-        },
-        dateItemSelected: {
-            backgroundColor: "#F0F9FF",
-            borderRadius: 8,
-        },
-        dateItemText: {
-            fontSize: 16,
-            color: "#4B5563",
-        },
-        dateItemTextSelected: {
-            color: "#0284C7",
-            fontWeight: "600",
-        },
-        modalFooter: {
-            flexDirection: "row",
-            justifyContent: "flex-end",
-            marginTop: 10,
-        },
-        cancelButton: {
-            paddingHorizontal: 16,
-            paddingVertical: 10,
-            borderWidth: 1,
-            borderColor: "#D1D5DB",
-            borderRadius: 8,
-            marginRight: 12,
-        },
-        cancelButtonText: {
-            color: "#374151",
-            fontWeight: "500",
-        },
-        confirmButton: {
-            backgroundColor: "#38BDF8",
-            paddingHorizontal: 16,
-            paddingVertical: 10,
-            borderRadius: 8,
-        },
-        confirmButtonText: {
-            color: "#FFFFFF",
-            fontWeight: "500",
-        },
-        stepContent: {
-            marginBottom: 20,
-        },
-        calendarIcon: {
-            marginRight: 10,
-        },
-        formSection: {
-            marginBottom: 24,
-        },
-        sectionHeader: {
-            fontSize: 18,
-            fontWeight: "600",
-            color: "#1F2937",
-            marginBottom: 16,
-        },
-        phoneInputContainer: {
-            flexDirection: "row",
-            alignItems: "center",
-        },
-        countryCodeContainer: {
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: "#FFFFFF",
-            borderWidth: 1,
-            borderColor: "#D1D5DB",
-            borderRadius: 4,
-            padding: 12,
-            marginRight: 10,
-            width: 100,
-        },
-        countryCodeText: {
-            fontSize: 16,
-            color: "#1F2937",
-            marginLeft: 5,
-        },
-        phoneNumberInput: {
-            flex: 1,
-            backgroundColor: "#FFFFFF",
-        },
-    });
+                            {/* Address Section */}
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.label}>Street Address</Text>
+                                <TextInput
+                                    mode="outlined"
+                                    value={address}
+                                    onChangeText={setAddress}
+                                    style={styles.input}
+                                    placeholder="Enter your complete street address"
+                                    error={address.trim().length < 3}
+                                    left={<TextInput.Icon icon="home" color="#1E3A8A" />}
+                                    theme={{ 
+                                        colors: { 
+                                            primary: "#1E3A8A", 
+                                            background: "#FFFFFF",
+                                            error: "#EF4444"
+                                        } 
+                                    }}
+                                    multiline
+                                />
+                                {address.trim().length < 3 && address.trim().length > 0 && (
+                                    <Text style={styles.errorText}>Address must be at least 3 characters</Text>
+                                )}
+                            </View>
+    
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.label}>Barangay</Text>
+                                <View style={styles.barangayContainer}>
+                                    {barangays.map((item, index) => (
+                                        <TouchableOpacity
+                                            key={index}
+                                            style={[
+                                                styles.barangayOption,
+                                                barangay === item && styles.barangaySelected
+                                            ]}
+                                            onPress={() => setBarangay(item)}
+                                        >
+                                            <Text 
+                                                style={[
+                                                    styles.barangayText,
+                                                    barangay === item && styles.barangayTextSelected
+                                                ]}
+                                            >
+                                                {item}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                                {!barangay.trim() && (
+                                    <Text style={styles.errorText}>Please select a barangay</Text>
+                                )}
+                            </View>
 
-    // Helper functions for the component (outside the component but part of the module)
-    const validateEmail = (email) => {
-        const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return regex.test(email);
-    };
+                            {/* Privacy Agreement Section */}
+                            <View style={styles.privacyContainer}>
+                                <TouchableOpacity 
+                                    style={styles.checkboxContainer}
+                                    onPress={() => setAcceptedPrivacyAgreement(!acceptedPrivacyAgreement)}
+                                    activeOpacity={0.8}
+                                >
+                                    <View style={[
+                                        styles.checkbox,
+                                        acceptedPrivacyAgreement && styles.checkboxChecked
+                                    ]}>
+                                        {acceptedPrivacyAgreement && (
+                                            <MaterialCommunityIcons name="check" size={16} color="#FFFFFF" />
+                                        )}
+                                    </View>
+                                    <Text style={styles.privacyText}>
+                                        I consent to the processing of my personal data by the Office of Congressman Jaime R. Fresnedi in accordance with the {' '}
+                                        <Text 
+                                            style={styles.privacyLink}
+                                            onPress={openPrivacyModal}
+                                        >
+                                            District Office Privacy Policy
+                                        </Text> and Republic Act 10173.
+                                    </Text>
+                                </TouchableOpacity>
+                                {!acceptedPrivacyAgreement && (
+                                    <Text style={styles.errorText}>You must accept the privacy agreement to continue</Text>
+                                )}
+                            </View>
+                        </Animated.View>
+                    )}
+                </ScrollView>
+    
+                {/* Bottom Action Buttons */}
+                <View style={styles.bottomActions}>
+                    {step > 1 && (
+                        <TouchableOpacity
+                            style={styles.backButton}
+                            onPress={handleBack}
+                        >
+                            <MaterialCommunityIcons name="arrow-left" size={20} color="#374151" />
+                            <Text style={styles.backButtonText}>Back</Text>
+                        </TouchableOpacity>
+                    )}
+                    
+                    <TouchableOpacity
+                        style={[styles.nextButton, step === 1 ? styles.nextButtonFull : {}]}
+                        onPress={step < 2 ? handleNext : saveDetails}
+                    >
+                        <LinearGradient
+                            colors={['#1E3A8A', '#1E40AF']}
+                            style={styles.gradientButton}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                        >
+                            <Text style={styles.nextButtonText}>
+                                {step < 2 ? "Next" : "Submit"}
+                            </Text>
+                            {step < 2 ? (
+                                <MaterialCommunityIcons name="arrow-right" size={20} color="#FFFFFF" />
+                            ) : (
+                                <MaterialCommunityIcons name="check" size={20} color="#FFFFFF" />
+                            )}
+                        </LinearGradient>
+                    </TouchableOpacity>
+                </View>
+    
+                {/* Date Picker Modal */}
+                <Modal
+                    visible={dateModalVisible}
+                    transparent={true}
+                    animationType="none"
+                    onRequestClose={() => closeDateModal(false)}
+                >
+                    <TouchableWithoutFeedback onPress={() => closeDateModal(false)}>
+                        <View style={styles.modalOverlay}>
+                            <TouchableWithoutFeedback>
+                                <Animated.View 
+                                    style={[
+                                        styles.modalContainer,
+                                        {
+                                            opacity: modalAnim,
+                                            transform: [
+                                                { 
+                                                    translateY: modalAnim.interpolate({
+                                                        inputRange: [0, 1],
+                                                        outputRange: [300, 0]
+                                                    }) 
+                                                }
+                                            ]
+                                        }
+                                    ]}
+                                >
+                                    <View style={styles.modalHeader}>
+                                        <Text style={styles.modalTitle}>Select Date of Birth</Text>
+                                        <TouchableOpacity onPress={() => closeDateModal(false)}>
+                                            <MaterialCommunityIcons name="close" size={24} color="#374151" />
+                                        </TouchableOpacity>
+                                    </View>
+    
+                                    <View style={styles.datePickerContainer}>
+                                        {/* Day Picker */}
+                                        <View style={styles.dateColumn}>
+                                            <Text style={styles.dateColumnHeader}>Day</Text>
+                                            <ScrollView 
+                                                showsVerticalScrollIndicator={false}
+                                                style={styles.dateScrollView}
+                                                contentContainerStyle={styles.dateScrollContent}
+                                            >
+                                                {days.map((d) => (
+                                                    <TouchableOpacity
+                                                        key={`day-${d}`}
+                                                        style={[
+                                                            styles.dateItem,
+                                                            tempDay === d && styles.dateItemSelected
+                                                        ]}
+                                                        onPress={() => setTempDay(d)}
+                                                    >
+                                                        <Text 
+                                                            style={[
+                                                                styles.dateItemText,
+                                                                tempDay === d && styles.dateItemTextSelected
+                                                            ]}
+                                                        >
+                                                            {d}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                ))}
+                                            </ScrollView>
+                                        </View>
+    
+                                        {/* Month Picker */}
+                                        <View style={styles.dateColumn}>
+                                            <Text style={styles.dateColumnHeader}>Month</Text>
+                                            <ScrollView 
+                                                showsVerticalScrollIndicator={false}
+                                                style={styles.dateScrollView}
+                                                contentContainerStyle={styles.dateScrollContent}
+                                            >
+                                                {monthNames.map((m, index) => (
+                                                    <TouchableOpacity
+                                                        key={`month-${index}`}
+                                                        style={[
+                                                            styles.dateItem,
+                                                            tempMonth === index && styles.dateItemSelected
+                                                        ]}
+                                                        onPress={() => setTempMonth(index)}
+                                                    >
+                                                        <Text 
+                                                            style={[
+                                                                styles.dateItemText,
+                                                                tempMonth === index && styles.dateItemTextSelected
+                                                            ]}
+                                                        >
+                                                            {m}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                ))}
+                                            </ScrollView>
+                                        </View>
+    
+                                        {/* Year Picker */}
+                                        <View style={styles.dateColumn}>
+                                            <Text style={styles.dateColumnHeader}>Year</Text>
+                                            <ScrollView 
+                                                showsVerticalScrollIndicator={false}
+                                                style={styles.dateScrollView}
+                                                contentContainerStyle={styles.dateScrollContent}
+                                            >
+                                                {years.map((y) => (
+                                                    <TouchableOpacity
+                                                        key={`year-${y}`}
+                                                        style={[
+                                                            styles.dateItem,
+                                                            tempYear === y && styles.dateItemSelected
+                                                        ]}
+                                                        onPress={() => setTempYear(y)}
+                                                    >
+                                                        <Text 
+                                                            style={[
+                                                                styles.dateItemText,
+                                                                tempYear === y && styles.dateItemTextSelected
+                                                            ]}
+                                                        >
+                                                            {y}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                ))}
+                                            </ScrollView>
+                                        </View>
+                                    </View>
+    
+                                    <View style={styles.modalFooter}>
+                                        <TouchableOpacity 
+                                            style={styles.cancelButton}
+                                            onPress={() => closeDateModal(false)}
+                                        >
+                                            <Text style={styles.cancelButtonText}>Cancel</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={styles.confirmButton}
+                                            onPress={() => closeDateModal(true)}
+                                        >
+                                            <Text style={styles.confirmButtonText}>Confirm</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </Animated.View>
+                            </TouchableWithoutFeedback>
+                        </View>
+                    </TouchableWithoutFeedback>
+                </Modal>
 
-    const validatePhone = (phone) => {
-        // Basic validation for Philippines phone number (assumes 10 digits without country code)
-        return /^\d{10}$/.test(phone);
-    };
-
-    const calculateAge = (birthdate) => {
-        const today = new Date();
-        const birthDate = new Date(birthdate);
-        let age = today.getFullYear() - birthDate.getFullYear();
-        const m = today.getMonth() - birthDate.getMonth();
-        
-        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-            age--;
-        }
-        
-        return age;
-    };
-
+                {/* Privacy Policy Modal */}
+                <Modal
+                    visible={showPrivacyModal}
+                    transparent={true}
+                    animationType="fade"
+                    onRequestClose={closePrivacyModal}
+                >
+                    <View style={styles.privacyModalContainer}>
+                        <Animated.View 
+                            style={[
+                                styles.privacyModalContent,
+                                {
+                                    transform: [{
+                                        translateY: privacyModalAnim.interpolate({
+                                            inputRange: [0, 1],
+                                            outputRange: [500, 0]
+                                        })
+                                    }]
+                                }
+                            ]}
+                        >
+                            <View style={styles.privacyModalHeader}>
+                                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                    <MaterialCommunityIcons name="shield-account" size={24} color="#1E3A8A" style={{marginRight: 10}} />
+                                    <Text style={styles.privacyModalTitle}>Muntinlupa District Office Privacy Policy</Text>
+                                </View>
+                                <TouchableOpacity onPress={closePrivacyModal}>
+                                    <MaterialCommunityIcons name="close" size={22} color="#374151" />
+                                </TouchableOpacity>
+                            </View>
+                            
+                            <ScrollView style={styles.privacyScrollView}>
+                                <Text style={styles.privacyIntroText}>
+                                    This privacy policy governs how the Office of Congressman Jaime R. Fresnedi collects, uses, maintains, and discloses information collected from users of this constituent services application.
+                                </Text>
+                                
+                                <Text style={styles.privacySectionTitle}>1. Information We Collect</Text>
+                                <Text style={styles.privacyText}>
+                                    We collect the following personal data to serve you better:
+                                    {"\n\n"}• Full name and contact details
+                                    {"\n"}• Address and barangay information
+                                    {"\n"}• Constituent concerns and requests
+                                    {"\n"}• Service utilization records
+                                </Text>
+                                
+                                <Text style={styles.privacySectionTitle}>2. Purpose of Data Collection</Text>
+                                <Text style={styles.privacyText}>
+                                    Your information helps us:
+                                    {"\n\n"}• Process your constituent requests
+                                    {"\n"}• Deliver district services efficiently
+                                    {"\n"}• Improve public service delivery
+                                    {"\n"}• Communicate important district updates
+                                    {"\n"}• Maintain records for legislative purposes
+                                </Text>
+                                
+                                <Text style={styles.privacySectionTitle}>3. Data Protection Measures</Text>
+                                <Text style={styles.privacyText}>
+                                    We implement security protocols including:
+                                    {"\n\n"}• Secure database encryption
+                                    {"\n"}• Limited access to authorized personnel only
+                                    {"\n"}• Regular system security audits
+                                    {"\n"}• Compliance with Data Privacy Act of 2012 (RA 10173)
+                                </Text>
+                                
+                                <Text style={styles.privacySectionTitle}>4. Your Rights as a Constituent</Text>
+                                <Text style={styles.privacyText}>
+                                    Under Philippine law, you have the right to:
+                                    {"\n\n"}• Request access to your data
+                                    {"\n"}• Correct inaccurate information
+                                    {"\n"}• Request deletion of your data
+                                    {"\n"}• File complaints with the National Privacy Commission
+                                </Text>
+                                
+                                <Text style={styles.privacySectionTitle}>5. Contact Information</Text>
+                                <Text style={styles.privacyText}>
+                                    For privacy concerns, contact:
+                                    {"\n\n"}Congressman Jaime R. Fresnedi District Office
+                                    {"\n"}Muntinlupa City Hall Compound
+                                    {"\n"}Phone: (02) 8862-2565
+                                    {"\n"}Email: fresnedi.districtoffice@muntinlupa.gov.ph
+                                    {"\n\n"}Data Protection Officer:
+                                    {"\n"}Atty. Juan Dela Cruz
+                                    {"\n"}DPO@fresnedi-district.com
+                                </Text>
+                            </ScrollView>
+                            
+                            <TouchableOpacity 
+                                style={styles.privacyCloseButton}
+                                onPress={closePrivacyModal}
+                            >
+                                <Text style={styles.privacyCloseButtonText}>I Understand</Text>
+                            </TouchableOpacity>
+                        </Animated.View>
+                    </View>
+                </Modal>
+            </View>
+        </TouchableWithoutFeedback>
+    );
+}
