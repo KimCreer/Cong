@@ -77,7 +77,7 @@ const MedicalApplicationTab = () => {
                     orderBy("createdAt", "desc")
                 );
             } else {
-                const statusValue = statusFilter.toLowerCase();
+                const statusValue = statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1).toLowerCase();
                 q = query(
                     collection(db, "medicalApplications"),
                     where("status", "==", statusValue),

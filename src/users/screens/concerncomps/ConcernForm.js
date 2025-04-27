@@ -31,16 +31,13 @@ const ConcernForm = ({
     uploadProgress,
     isUploading,
     isLoading,
-    isMenuVisible,
-    setIsMenuVisible,
     handleSubmit,
     selectImage,
     takePhoto,
     getCategoryIcon,
     getCategoryColor,
-    setShowForm // Add this to the props
+    setShowForm
   }) => {
-  const categories = ["General", "Road", "Garbage", "Water", "Electricity"];
 
   return (
     <View style={styles.formWrapper}>
@@ -106,45 +103,15 @@ const ConcernForm = ({
         
         <View style={styles.inputContainer}>
           <Text style={styles.inputLabel}>Category</Text>
-          <Menu
-            visible={isMenuVisible}
-            onDismiss={() => setIsMenuVisible(false)}
-            anchor={
-              <TouchableOpacity
-                style={styles.categorySelector}
-                onPress={() => setIsMenuVisible(true)}
-              >
-                <Icon 
-                  name={getCategoryIcon(category)} 
-                  size={20} 
-                  color={getCategoryColor(category)} 
-                  style={styles.categoryIcon} 
-                />
-                <Text style={styles.categoryText}>{category}</Text>
-                <Icon name="chevron-down" size={20} color="#555" />
-              </TouchableOpacity>
-            }
-            style={styles.menuStyle}
-          >
-            {categories.map((cat) => (
-              <Menu.Item
-                key={cat}
-                onPress={() => {
-                  setCategory(cat);
-                  setIsMenuVisible(false);
-                }}
-                title={cat}
-                leadingIcon={() => (
-                  <Icon 
-                    name={getCategoryIcon(cat)} 
-                    size={20} 
-                    color={getCategoryColor(cat)} 
-                  />
-                )}
-                style={styles.menuItem}
-              />
-            ))}
-          </Menu>
+          <View style={styles.categoryDisplay}>
+            <Icon 
+              name={getCategoryIcon("General")} 
+              size={20} 
+              color={getCategoryColor("General")} 
+              style={styles.categoryIcon} 
+            />
+            <Text style={styles.categoryText}>General</Text>
+          </View>
         </View>
         
         <View style={styles.inputContainer}>
@@ -281,7 +248,7 @@ const styles = StyleSheet.create({
     height: 120,
     textAlignVertical: 'top',
   },
-  categorySelector: {
+  categoryDisplay: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 14,
@@ -297,12 +264,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#333',
-  },
-  menuStyle: {
-    marginTop: 50,
-  },
-  menuItem: {
-    paddingVertical: 8,
   },
   imageButtons: {
     flexDirection: 'row',

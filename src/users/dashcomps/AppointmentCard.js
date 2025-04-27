@@ -11,9 +11,9 @@ import {
 import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import PropTypes from 'prop-types';
-import { format, parseISO, isToday, isTomorrow } from 'date-fns';
+import { format, parseISO, isToday, isTomorrow, isAfter } from 'date-fns';
 
-const AppointmentCard = ({ appointment, onViewDetails }) => {
+const AppointmentCard = ({ appointment, onViewDetails, isUpcoming }) => {
   const parsedDate = parseISO(appointment.date);
   
   // Format time display
@@ -80,7 +80,13 @@ const AppointmentCard = ({ appointment, onViewDetails }) => {
   const statusConfig = getStatusConfig();
 
   return (
-    <View style={styles.cardContainer}>
+    <View style={[styles.cardContainer, isUpcoming && styles.upcomingCard]}>
+      {isUpcoming && (
+        <View style={styles.upcomingBadge}>
+          <Text style={styles.upcomingBadgeText}>Upcoming</Text>
+        </View>
+      )}
+      
       {/* Date Section with Gradient */}
       <LinearGradient
         colors={['#0275d8', '#003580']}
@@ -139,6 +145,11 @@ AppointmentCard.propTypes = {
     type: PropTypes.string,
   }).isRequired,
   onViewDetails: PropTypes.func.isRequired,
+  isUpcoming: PropTypes.bool,
+};
+
+AppointmentCard.defaultProps = {
+  isUpcoming: false,
 };
 
 const styles = StyleSheet.create({
@@ -155,6 +166,26 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 },
     overflow: 'hidden',
+    position: 'relative',
+  },
+  upcomingCard: {
+    borderWidth: 2,
+    borderColor: '#FFC107',
+  },
+  upcomingBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: '#FFC107',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    zIndex: 1,
+  },
+  upcomingBadgeText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#000',
   },
   dateContainer: {
     width: 90,

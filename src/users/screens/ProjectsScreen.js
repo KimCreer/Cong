@@ -157,7 +157,7 @@ export default function ProjectsScreen() {
               />
             </View>
           )}
-
+  
           {/* Project Details */}
           <Card.Content style={styles.cardContent}>
             {/* Status & Location Labels */}
@@ -180,13 +180,13 @@ export default function ProjectsScreen() {
                 {project.status.charAt(0).toUpperCase() + project.status.slice(1)}
               </Chip>
             </View>
-
+  
             {/* Title & Description */}
             <Text style={styles.projectTitle}>{project.title}</Text>
             <Text style={styles.projectDescription} numberOfLines={2} ellipsizeMode="tail">
               {project.description}
             </Text>
-
+  
             {/* Progress Bar with percentage */}
             <View style={styles.progressContainer}>
               <View style={styles.progressHeader}>
@@ -205,21 +205,7 @@ export default function ProjectsScreen() {
                 style={styles.progressBar}
               />
             </View>
-
-            {/* Additional Details */}
-            <View style={styles.detailsGrid}>
-              <View style={styles.detailItem}>
-                <Icon name="account-hard-hat" size={18} color="#003366" />
-                <Text style={styles.detailText} numberOfLines={1} ellipsizeMode="tail">
-                  {project.contractor}
-                </Text>
-              </View>
-              <View style={styles.detailItem}>
-                <Icon name="cash" size={18} color="#003366" />
-                <Text style={styles.detailText}>{project.contractAmount}</Text>
-              </View>
-            </View>
-
+  
             {/* Learn More Button */}
             <Button
               mode="contained"

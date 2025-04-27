@@ -203,45 +203,30 @@ export default function ProjectDetailsScreen({ route, navigation }) {
         <Text style={styles.description}>{project.description}</Text>
 
         {/* Project Details */}
-        <Card style={styles.detailsCard}>
-          <Card.Content>
-            <View style={styles.detailItem}>
-              <Icon name="account-hard-hat" size={20} color="#003366" />
-              <Text style={styles.detailText}>
-                <Text style={styles.detailLabel}>Contractor: </Text>
-                {project.contractor}
-              </Text>
-            </View>
+        {/* Project Details */}
+<Card style={styles.detailsCard}>
+  <Card.Content>
+    {project.createdAt && (
+      <View style={styles.detailItem}>
+        <Icon name="calendar" size={20} color="#003366" />
+        <Text style={styles.detailText}>
+          <Text style={styles.detailLabel}>Created: </Text>
+          {project.createdAt.toLocaleDateString()}
+        </Text>
+      </View>
+    )}
 
-            <View style={styles.detailItem}>
-              <Icon name="cash" size={20} color="#003366" />
-              <Text style={styles.detailText}>
-                <Text style={styles.detailLabel}>Contract Amount: </Text>
-                {project.contractAmount}
-              </Text>
-            </View>
-
-            {project.createdAt && (
-              <View style={styles.detailItem}>
-                <Icon name="calendar" size={20} color="#003366" />
-                <Text style={styles.detailText}>
-                  <Text style={styles.detailLabel}>Created: </Text>
-                  {project.createdAt.toLocaleDateString()}
-                </Text>
-              </View>
-            )}
-
-            {project.updatedAt && (
-              <View style={styles.detailItem}>
-                <Icon name="calendar-edit" size={20} color="#003366" />
-                <Text style={styles.detailText}>
-                  <Text style={styles.detailLabel}>Last Updated: </Text>
-                  {project.updatedAt.toLocaleDateString()}
-                </Text>
-              </View>
-            )}
-          </Card.Content>
-        </Card>
+    {project.updatedAt && (
+      <View style={styles.detailItem}>
+        <Icon name="calendar-edit" size={20} color="#003366" />
+        <Text style={styles.detailText}>
+          <Text style={styles.detailLabel}>Last Updated: </Text>
+          {project.updatedAt.toLocaleDateString()}
+        </Text>
+      </View>
+    )}
+  </Card.Content>
+</Card>
 
         {/* Progress Section */}
         <Card style={styles.progressCard}>

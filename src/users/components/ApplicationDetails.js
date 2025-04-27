@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,16 +8,111 @@ import {
   Linking,
   Platform,
   Alert,
-  Image
+  Image,
+  ActivityIndicator
 } from 'react-native';
 import { FontAwesome5, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import moment from 'moment';
+import { initializeApp } from '@react-native-firebase/app';
+import { getFirestore, doc, getDoc } from '@react-native-firebase/firestore';
 
 const ApplicationDetails = ({ route, navigation }) => {
-  const { application } = route.params;
+  const { application, onGoBack } = route.params;
+  const [hospitalDetails, setHospitalDetails] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [requirements, setRequirements] = useState([]);
 
-  // Format the application data for display
+  // Initialize Firebase
+  const app = initializeApp();
+  const db = getFirestore(app);
+
+  useEffect(() => {
+    const fetchHospitalDetails = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch hospital details from Firestore if hospitalId exists
+        if (application.hospitalId) {
+          const hospitalRef = doc(db, 'hospitals', application.hospitalId);
+          const hospitalSnap = await getDoc(hospitalRef);
+          
+          if (hospitalSnap.exists()) {
+            const data = hospitalSnap.data();
+            setHospitalDetails({
+              id: hospitalSnap.id,
+              ...data,
+              requirements: data.requirements || getDefaultRequirements(data.type, application.patientStatus)
+            });
+          } else {
+            setHospitalDetails({
+              name: application.hospitalName || 'Not specified',
+              type: application.programType || 'medical-financial',
+              requirements: getDefaultRequirements(application.programType, application.patientStatus)
+            });
+          }
+        } else {
+          // Use fallback data if no hospitalId
+          setHospitalDetails({
+            name: application.hospitalName || 'Not specified',
+            type: application.programType || 'medical-financial',
+            requirements: getDefaultRequirements(application.programType, application.patientStatus)
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching hospital details:", error);
+        setHospitalDetails({
+          name: application.hospitalName || 'Not specified',
+          type: application.programType || 'medical-financial',
+          requirements: getDefaultRequirements(application.programType, application.patientStatus)
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchHospitalDetails();
+  }, [application]);
+
+  const getDefaultRequirements = (type, patientStatus = 'outpatient') => {
+    const requirements = {
+      'guarantee': [
+        'Hospital Guarantee Request Letter',
+        'Medical Abstract/Certificate (with doctor\'s signature)',
+        'Valid ID (front & back)',
+        'Certificate of Indigency (from barangay)',
+        'Hospital Bill (if available)'
+      ],
+      'medical-financial': [
+        patientStatus === 'inpatient' 
+          ? 'Clinical Abstract (for confined patients)' 
+          : 'Medical Certificate (for non-confined patients)',
+        'Quotation/Bill/Statement of Account (from hospital)',
+        'Valid ID with address',
+        'Voter\'s ID / COMELEC Certification (proof of residency)',
+        'Certificate of Indigency (from barangay)',
+        'Authorization Letter (if applying on behalf)'
+      ],
+      'dswd-medical': [
+        'DSWD Prescribed Request Form (from DSWD office)',
+        'Certificate of Indigency (with barangay seal & signature)',
+        'Medical Certificate/Abstract (from doctor)',
+        'Prescription/Lab Request (2 copies, doctor-signed)',
+        'Unpaid Hospital Bill (signed by billing clerk)',
+        'Social Case Study (required for dialysis/cancer patients)'
+      ],
+      'dswd-burial': [
+        'Death Certificate (Certified True Copy + photocopy)',
+        'Funeral Contract (Original + photocopy)',
+        'Promissory Note / Certificate of Balance (from funeral home)',
+        'Valid ID of Claimant (2 photocopies)',
+        'Certificate of Indigency (from barangay)'
+      ]
+    };
+
+    return requirements[type] || requirements['medical-financial'];
+  };
+
   const formatCurrency = (value) => {
     try {
       const num = typeof value === 'string' 
@@ -47,51 +142,6 @@ const ApplicationDetails = ({ route, navigation }) => {
     estimatedCost: formatCurrency(application.estimatedCost)
   };
 
-  // Get requirements based on program type
-  const getRequirements = () => {
-    const type = application.programType;
-    const patientStatus = application.patientStatus || 'outpatient';
-    
-    const requirements = {
-      extensive: [
-        patientStatus === 'inpatient' 
-          ? 'Clinical Abstract (para sa mga naka-confine)' 
-          : 'Medical Certificate (para sa mga hindi naka-confine)',
-        'Certification from OSMUN/Public Hospital',
-        'Social Case Study',
-        'Valid ID na may Muntinlupa address',
-        'Voter\'s ID / COMELEC Certification',
-        'Certificate of Indigency',
-        'Laboratory and Diagnostic Results'
-      ],
-      standard: [
-        'Medical Certificate (within 3 months)',
-        'Quotation/Bill/Statement of Account',
-        'Valid ID na may Muntinlupa address',
-        'Voter\'s ID / COMELEC Certification',
-        'Certificate of Indigency',
-        'Authorization Letter (if applicable)'
-      ],
-      'dswd-medical': [
-        'DSWD Prescribed Request Form',
-        'Certificate of Indigency',
-        'Medical Certificate/Abstract',
-        'Prescription/Lab Request (2 copies)',
-        'Unpaid Hospital Bill',
-        'Social Case Study (for dialysis/cancer patients)'
-      ],
-      'dswd-burial': [
-        'Death Certificate (Certified True Copy)',
-        'Funeral Contract (Original + photocopy)',
-        'Promissory Note / Certificate of Balance',
-        'Valid ID of Claimant (2 photocopies)',
-        'Certificate of Indigency'
-      ]
-    };
-
-    return requirements[type] || requirements.standard;
-  };
-
   const getStatusColor = () => {
     switch ((application.status || '').toLowerCase()) {
       case 'approved': return '#4CAF50';
@@ -103,12 +153,14 @@ const ApplicationDetails = ({ route, navigation }) => {
     }
   };
 
-  const getProgramColor = () => {
-    switch (application.programType) {
-      case 'extensive': return '#F75A5A';
-      case 'dswd-medical': return '#5E35B1';
-      case 'dswd-burial': return '#5E35B1';
-      default: return '#003580';
+  const getProgramTypeName = () => {
+    const type = hospitalDetails?.type || application.programType;
+    switch (type) {
+      case 'guarantee': return 'Guarantee Letter';
+      case 'medical-financial': return 'Medical Financial Assistance';
+      case 'dswd-medical': return 'DSWD Medical Assistance';
+      case 'dswd-burial': return 'DSWD Burial Assistance';
+      default: return 'Medical Assistance';
     }
   };
 
@@ -120,7 +172,7 @@ const ApplicationDetails = ({ route, navigation }) => {
     }
 
     Alert.alert(
-      "Contact Applicant",
+      "Contact Information",
       `Would you like to call ${phoneNumber}?`,
       [
         {
@@ -151,13 +203,24 @@ const ApplicationDetails = ({ route, navigation }) => {
     </View>
   );
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#003580" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         {/* Header Section */}
         <View style={styles.header}>
           <TouchableOpacity 
-            onPress={() => navigation.goBack()}
+            onPress={() => {
+              if (onGoBack) onGoBack();
+              navigation.goBack();
+            }}
             style={styles.backButton}
             activeOpacity={0.7}
           >
@@ -167,9 +230,9 @@ const ApplicationDetails = ({ route, navigation }) => {
         </View>
 
         {/* Status Card */}
-        <View style={[styles.statusCard, { borderLeftColor: getProgramColor() }]}>
+        <View style={[styles.statusCard, { borderLeftColor: getStatusColor() }]}>
           <View style={styles.statusHeader}>
-            <Text style={styles.programName}>{application.programName}</Text>
+            <Text style={styles.programName}>{getProgramTypeName()}</Text>
             <View style={[styles.statusBadge, { backgroundColor: getStatusColor() }]}>
               <Text style={styles.statusText}>{application.status?.toUpperCase() || 'PENDING'}</Text>
             </View>
@@ -182,13 +245,9 @@ const ApplicationDetails = ({ route, navigation }) => {
         {/* Main Details Section */}
         <View style={styles.detailsCard}>
           {renderDetailRow('account', 'Applicant Name', application.fullName)}
-          {renderDetailRow('card-account-details', 'Program Type', 
-            application.programType === 'extensive' ? 'Extensive Medical' :
-            application.programType === 'dswd-medical' ? 'DSWD Medical' :
-            application.programType === 'dswd-burial' ? 'DSWD Burial' : 'Standard Medical'
-          )}
+          {renderDetailRow('card-account-details', 'Program Type', getProgramTypeName())}
           
-          {application.programType === 'dswd-burial' ? (
+          {hospitalDetails?.type === 'dswd-burial' ? (
             renderDetailRow('account-heart', 'Deceased Name', application.medicalCondition)
           ) : (
             renderDetailRow('hospital', 'Medical Condition', application.medicalCondition)
@@ -196,10 +255,10 @@ const ApplicationDetails = ({ route, navigation }) => {
           
           {renderDetailRow('cash', 'Estimated Cost', formattedApp.estimatedCost)}
           
-          {application.programType === 'dswd-burial' ? (
-            renderDetailRow('home-heart', 'Funeral Home', application.hospitalName)
+          {hospitalDetails?.type === 'dswd-burial' ? (
+            renderDetailRow('home-heart', 'Funeral Home', hospitalDetails.name)
           ) : (
-            renderDetailRow('home', 'Hospital/Clinic', application.programName)
+            renderDetailRow('home', 'Hospital/Clinic', hospitalDetails?.name)
           )}
           
           {application.patientStatus && renderDetailRow(
@@ -215,12 +274,14 @@ const ApplicationDetails = ({ route, navigation }) => {
           {renderDetailRow('phone', 'Phone Number', application.contactNumber)}
           {renderDetailRow('email', 'Email', application.email)}
           {renderDetailRow('map-marker', 'Address', application.address, true)}
+          
+          
         </View>
 
         {/* Requirements Section */}
         <View style={styles.detailsCard}>
           <Text style={styles.sectionTitle}>Required Documents</Text>
-          {getRequirements().map((req, index) => (
+          {(hospitalDetails?.requirements || []).map((req, index) => (
             <View key={index} style={styles.requirementItem}>
               <MaterialCommunityIcons 
                 name="file-document" 
@@ -232,6 +293,18 @@ const ApplicationDetails = ({ route, navigation }) => {
             </View>
           ))}
         </View>
+
+        {/* Hospital Logo Section */}
+        {hospitalDetails?.logo && (
+          <View style={styles.detailsCard}>
+            <Text style={styles.sectionTitle}>Hospital Logo</Text>
+            <Image 
+              source={{ uri: hospitalDetails.logo }}
+              style={styles.hospitalLogo}
+              resizeMode="contain"
+            />
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -241,6 +314,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F7FA'
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   scrollContainer: {
     padding: 16,
@@ -363,24 +441,25 @@ const styles = StyleSheet.create({
     color: '#333',
     lineHeight: 20
   },
-  actionButtonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  hospitalLogo: {
+    width: '100%',
+    height: 100,
     marginTop: 10
   },
   callButton: {
-    flex: 1,
     flexDirection: 'row',
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#003580',
     padding: 14,
     borderRadius: 8,
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    marginTop: 15
   },
   callButtonText: {
     color: 'white',
     fontWeight: 'bold',
-    marginLeft: 8
+    marginLeft: 8,
+    fontSize: 16
   }
 });
 

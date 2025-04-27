@@ -32,7 +32,7 @@ import {
   limit,
   updateDoc
 } from "@react-native-firebase/firestore";
-import { format, parseISO, isToday, isTomorrow } from 'date-fns';
+import { format, parseISO, isAfter, isToday, isTomorrow } from 'date-fns';
 
 // Import components
 import ServiceCard from './dashcomps/ServiceCard';
@@ -42,7 +42,6 @@ import AppointmentCard from './dashcomps/AppointmentCard';
 import MedicalFinancialSection from './dashcomps/MedicalFinancialSection';
 
 // data imports
-
 import { HOSPITALS } from "./data/hospitals";
 import { OFFICE_ADDRESS } from "./data/officeAddress";
 
@@ -73,309 +72,339 @@ const SERVICE_ITEMS = [
   { name: "Info", icon: "info-circle", color: "#0275d8", screen: "Info" },
 ];
 
+const GradientTabBar = ({ children }) => (
+  <LinearGradient
+    colors={['#003366', '#0275d8']}
+    start={{ x: 0, y: 0 }}
+    end={{ x: 1, y: 0 }}
+    style={styles.tabBarBackground}
+  >
+    {children}
+  </LinearGradient>
+);
 
-  const GradientTabBar = ({ children }) => (
+function HomeScreen() {
+  const navigation = useNavigation();
+  const [userData, setUserData] = useState({
+    firstName: "User Name",
+    profileImage: PLACEHOLDER_IMAGE,
+  });
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [appointments, setAppointments] = useState([]);
+  const [newsItems, setNewsItems] = useState([]);
+  const [error, setError] = useState(null);
+
+  const fetchUserData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      const db = getFirestore();
+
+      if (!currentUser) {
+        throw new Error("No authenticated user found");
+      }
+
+      // Fetch user profile
+      const userDocRef = doc(db, "users", currentUser.uid);
+      const userDocSnapshot = await getDoc(userDocRef);
+      
+      if (userDocSnapshot.exists) {
+        const userInfo = userDocSnapshot.data();
+        setUserData({
+          firstName: userInfo.firstName || "User Name",
+          profileImage: userInfo.profilePicture?.trim() ? userInfo.profilePicture : PLACEHOLDER_IMAGE,
+        });
+      }
+
+      // Fetch appointments - now getting both upcoming and pending
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      const appointmentsQuery = query(
+        collection(db, "appointments"),
+        where("userId", "==", currentUser.uid),
+        where("date", ">=", startOfToday.toISOString()),
+        orderBy("date", "asc"),
+        limit(5)
+      );
+      
+      const appointmentsSnapshot = await getDocs(appointmentsQuery);
+      let appointments = appointmentsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        status: doc.data().status?.trim() || 'Pending'
+      }));
+
+      // Sort appointments: confirmed first, then pending
+      appointments.sort((a, b) => {
+        if (a.status === 'Confirmed' && b.status !== 'Confirmed') return -1;
+        if (a.status !== 'Confirmed' && b.status === 'Confirmed') return 1;
+        return parseISO(a.date) - parseISO(b.date);
+      });
+
+      setAppointments(appointments);
+
+      // Fetch news posts
+      const postsQuery = query(
+        collection(db, "posts"),
+        orderBy("createdAt", "desc"),
+        limit(5)
+      );
+      
+      const postsSnapshot = await getDocs(postsQuery);
+      const posts = postsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        read: doc.data().read || false
+      }));
+      setNewsItems(posts);
+
+    } catch (err) {
+      console.error("Error fetching data:", err);
+      setError(err.message);
+      Alert.alert("Error", "Failed to load data. Please try again.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUserData();
+  }, [fetchUserData]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchUserData();
+  }, [fetchUserData]);
+
+  const handleImageError = useCallback(() => {
+    setUserData(prev => ({
+      ...prev,
+      profileImage: PLACEHOLDER_IMAGE,
+    }));
+  }, []);
+
+  const navigateToScreen = useCallback((screen) => {
+    navigation.navigate(screen);
+  }, [navigation]);
+
+  const markPostAsRead = useCallback(async (postId) => {
+    try {
+      const db = getFirestore();
+      await updateDoc(doc(db, "posts", postId), {
+        read: true
+      });
+      setNewsItems(prev => prev.map(item => 
+        item.id === postId ? {...item, read: true} : item
+      ));
+    } catch (err) {
+      console.error("Error marking post as read:", err);
+    }
+  }, []);
+
+  // Get upcoming appointment (nearest future appointment)
+  const upcomingAppointment = useMemo(() => {
+    const now = new Date();
+    return appointments
+      .filter(appt => isAfter(parseISO(appt.date), now)
+      .sort((a, b) => parseISO(a.date) - parseISO(b.date)))[0];
+  }, [appointments]);
+
+  const otherAppointments = useMemo(() => {
+    return appointments.filter(appt => !upcomingAppointment || appt.id !== upcomingAppointment.id);
+  }, [appointments, upcomingAppointment]);
+
+  const renderHeader = useMemo(() => (
     <LinearGradient
       colors={['#003366', '#0275d8']}
+      style={styles.header}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 0 }}
-      style={styles.tabBarBackground}
     >
-      {children}
-    </LinearGradient>
-  );
-  
-  function HomeScreen() {
-    const navigation = useNavigation();
-    const [userData, setUserData] = useState({
-      firstName: "User Name",
-      profileImage: PLACEHOLDER_IMAGE,
-    });
-    const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
-    const [upcomingAppointments, setUpcomingAppointments] = useState([]);
-    const [newsItems, setNewsItems] = useState([]);
-    const [error, setError] = useState(null);
-  
-    const fetchUserData = useCallback(async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const auth = getAuth();
-        const currentUser = auth.currentUser;
-        const db = getFirestore();
-  
-        if (!currentUser) {
-          throw new Error("No authenticated user found");
-        }
-  
-        // Fetch user profile
-        const userDocRef = doc(db, "users", currentUser.uid);
-        const userDocSnapshot = await getDoc(userDocRef);
-        
-        if (userDocSnapshot.exists) {
-          const userInfo = userDocSnapshot.data();
-          setUserData({
-            firstName: userInfo.firstName || "User Name",
-            profileImage: userInfo.profilePicture?.trim() ? userInfo.profilePicture : PLACEHOLDER_IMAGE,
-          });
-        }
-  
-        // Fetch appointments - now getting both upcoming and pending
-        const now = new Date();
-        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        
-        const appointmentsQuery = query(
-          collection(db, "appointments"),
-          where("userId", "==", currentUser.uid),
-          where("date", ">=", startOfToday.toISOString()),
-          orderBy("date", "asc"),
-          limit(5)
-        );
-        
-        const appointmentsSnapshot = await getDocs(appointmentsQuery);
-        let appointments = appointmentsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          status: doc.data().status?.trim() || 'Pending'
-        }));
-  
-        // Sort appointments: confirmed first, then pending
-        appointments.sort((a, b) => {
-          if (a.status === 'Confirmed' && b.status !== 'Confirmed') return -1;
-          if (a.status !== 'Confirmed' && b.status === 'Confirmed') return 1;
-          return 0;
-        });
-  
-        setUpcomingAppointments(appointments);
-  
-        // Fetch news posts
-        const postsQuery = query(
-          collection(db, "posts"),
-          orderBy("createdAt", "desc"),
-          limit(5)
-        );
-        
-        const postsSnapshot = await getDocs(postsQuery);
-        const posts = postsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          read: doc.data().read || false
-        }));
-        setNewsItems(posts);
-  
-      } catch (err) {
-        console.error("Error fetching data:", err);
-        setError(err.message);
-        Alert.alert("Error", "Failed to load data. Please try again.");
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }, []);
-  
-    useEffect(() => {
-      fetchUserData();
-    }, [fetchUserData]);
-  
-    const onRefresh = useCallback(() => {
-      setRefreshing(true);
-      fetchUserData();
-    }, [fetchUserData]);
-  
-    const handleImageError = useCallback(() => {
-      setUserData(prev => ({
-        ...prev,
-        profileImage: PLACEHOLDER_IMAGE,
-      }));
-    }, []);
-  
-    const navigateToScreen = useCallback((screen) => {
-      navigation.navigate(screen);
-    }, [navigation]);
-  
-    const markPostAsRead = useCallback(async (postId) => {
-      try {
-        const db = getFirestore();
-        await updateDoc(doc(db, "posts", postId), {
-          read: true
-        });
-        setNewsItems(prev => prev.map(item => 
-          item.id === postId ? {...item, read: true} : item
-        ));
-      } catch (err) {
-        console.error("Error marking post as read:", err);
-      }
-    }, []);
-  
-    const renderHeader = useMemo(() => (
-      <LinearGradient
-        colors={['#003366', '#0275d8']}
-        style={styles.header}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-      >
-        <View style={styles.headerTop}>
-          {loading ? (
-            <ActivityIndicator size="small" color="#FFD700" />
-          ) : (
-            <Image
-              source={{ uri: userData.profileImage }}
-              style={styles.profileImage}
-              onError={handleImageError}
-            />
-          )}
-          <View style={styles.headerTextContainer}>
-            <Text style={styles.headerSubtitle}>Welcome Back!</Text>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {userData.firstName}
-            </Text>
-          </View>
-          <TouchableOpacity 
-            style={styles.helpButton}
-            onPress={() => navigation.navigate('Help')}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.helpText}>HELP</Text>
-          </TouchableOpacity>
-        </View>
-      </LinearGradient>
-    ), [userData, loading, handleImageError, navigation]);
-  
-    const renderServiceGrid = useMemo(() => (
-      <View style={styles.serviceGrid}>
-        {SERVICE_ITEMS.map((item) => (
-          <ServiceCard 
-            key={item.name}
-            item={item} 
-            onPress={() => navigateToScreen(item.screen)} 
+      <View style={styles.headerTop}>
+        {loading ? (
+          <ActivityIndicator size="small" color="#FFD700" />
+        ) : (
+          <Image
+            source={{ uri: userData.profileImage }}
+            style={styles.profileImage}
+            onError={handleImageError}
           />
-        ))}
+        )}
+        <View style={styles.headerTextContainer}>
+          <Text style={styles.headerSubtitle}>Welcome Back!</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {userData.firstName}
+          </Text>
+        </View>
+        <TouchableOpacity 
+          style={styles.helpButton}
+          onPress={() => navigation.navigate('Help')}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.helpText}>HELP</Text>
+        </TouchableOpacity>
       </View>
-    ), [navigateToScreen]);
-  
-    const renderNewsSection = useMemo(() => {
-      if (error) {
-        return (
-          <View style={styles.errorContainer}>
-            <FontAwesome5 name="exclamation-triangle" size={30} color="#FF3B30" />
-            <Text style={styles.errorText}>Failed to load news</Text>
-            <TouchableOpacity
-              style={styles.retryButton}
-              onPress={fetchUserData}
-            >
-              <Text style={styles.retryText}>Retry</Text>
-            </TouchableOpacity>
-          </View>
-        );
-      }
-  
+    </LinearGradient>
+  ), [userData, loading, handleImageError, navigation]);
+
+  const renderServiceGrid = useMemo(() => (
+    <View style={styles.serviceGrid}>
+      {SERVICE_ITEMS.map((item) => (
+        <ServiceCard 
+          key={item.name}
+          item={item} 
+          onPress={() => navigateToScreen(item.screen)} 
+        />
+      ))}
+    </View>
+  ), [navigateToScreen]);
+
+  const renderNewsSection = useMemo(() => {
+    if (error) {
       return (
-        <>
-          <Text style={styles.sectionTitle}>Latest Posts</Text>
-          {newsItems.length > 0 ? (
-            <ScrollView 
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.horizontalNewsContainer}
-            >
-              {newsItems.map(item => (
-                <NewsCard 
-                  key={item.id}
-                  item={item}
-                  onPress={() => {
-                    if (!item.read) markPostAsRead(item.id);
-                    navigation.navigate("Post", { 
-                      postId: item.id,
-                      postData: item
-                    });
-                  }}
-                />
-              ))}
-            </ScrollView>
-          ) : (
-            <View style={styles.noUpdatesContainer}>
-              <FontAwesome5 name="newspaper" size={30} color="#cccccc" />
-              <Text style={styles.noUpdatesText}>No posts available</Text>
-            </View>
-          )}
-          
+        <View style={styles.errorContainer}>
+          <FontAwesome5 name="exclamation-triangle" size={30} color="#FF3B30" />
+          <Text style={styles.errorText}>Failed to load news</Text>
           <TouchableOpacity
-            style={styles.viewAllUpdatesButton}
-            onPress={() => navigation.navigate("Newsfeed")}
-            activeOpacity={0.7}
+            style={styles.retryButton}
+            onPress={fetchUserData}
           >
-            <Text style={styles.viewAllUpdatesText}>View All Posts</Text>
-            <FontAwesome5 name="arrow-right" size={14} color="#003580" />
+            <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
-        </>
-      );
-    }, [newsItems, error, navigation, markPostAsRead, fetchUserData]);
-  
-    const renderAppointmentsSection = useMemo(() => {
-      if (upcomingAppointments.length === 0) {
-        return (
-          <View style={styles.noAppointmentsContainer}>
-            <FontAwesome5 name="calendar" size={30} color="#cccccc" />
-            <Text style={styles.noAppointmentsText}>No upcoming appointments</Text>
-            <TouchableOpacity
-              style={styles.scheduleButton}
-              onPress={() => navigation.navigate('Appointments')}
-            >
-              <Text style={styles.scheduleButtonText}>Schedule Now</Text>
-            </TouchableOpacity>
-          </View>
-        );
-      }
-      
-      return (
-        <View style={styles.upcomingAppointmentsContainer}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.upcomingAppointmentsTitle}>Upcoming Appointments</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Appointments')}>
-              <Text style={styles.viewAllText}>View All</Text>
-            </TouchableOpacity>
-          </View>
-          
-          {upcomingAppointments.map(appointment => (
-            <AppointmentCard
-              key={appointment.id}
-              appointment={appointment}
-              onViewDetails={() => navigation.navigate("Appointments", { 
-                focusAppointmentId: appointment.id 
-              })}
-            />
-          ))}
         </View>
       );
-    }, [upcomingAppointments, navigation]);
-  
+    }
+
     return (
-      <SafeAreaView style={styles.safeContainer}>
-        {renderHeader}
-        <ScrollView
-          contentContainerStyle={styles.scrollContainer}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={["#003580", "#FFD700"]}
-              tintColor="#003580"
-            />
-          }
-          showsVerticalScrollIndicator={false}
+      <>
+        <Text style={styles.sectionTitle}>Latest Posts</Text>
+        {newsItems.length > 0 ? (
+          <ScrollView 
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.horizontalNewsContainer}
+          >
+            {newsItems.map(item => (
+              <NewsCard 
+                key={item.id}
+                item={item}
+                onPress={() => {
+                  if (!item.read) markPostAsRead(item.id);
+                  navigation.navigate("Post", { 
+                    postId: item.id,
+                    postData: item
+                  });
+                }}
+              />
+            ))}
+          </ScrollView>
+        ) : (
+          <View style={styles.noUpdatesContainer}>
+            <FontAwesome5 name="newspaper" size={30} color="#cccccc" />
+            <Text style={styles.noUpdatesText}>No posts available</Text>
+          </View>
+        )}
+        
+        <TouchableOpacity
+          style={styles.viewAllUpdatesButton}
+          onPress={() => navigation.navigate("Newsfeed")}
+          activeOpacity={0.7}
         >
-          {renderServiceGrid}
-          <MedicalFinancialSection navigation={navigation} hospitals={HOSPITALS} />
-          {renderAppointmentsSection}
-          <Text style={styles.sectionTitle}>District Office Location</Text>
-          <AddressCard address={OFFICE_ADDRESS} />
-          {renderNewsSection}
-        </ScrollView>
-      </SafeAreaView>
+          <Text style={styles.viewAllUpdatesText}>View All Posts</Text>
+          <FontAwesome5 name="arrow-right" size={14} color="#003580" />
+        </TouchableOpacity>
+      </>
     );
-  }
-  
+  }, [newsItems, error, navigation, markPostAsRead, fetchUserData]);
+
+  const renderAppointmentsSection = useMemo(() => {
+    if (appointments.length === 0) {
+      return (
+        <View style={styles.noAppointmentsContainer}>
+          <FontAwesome5 name="calendar" size={30} color="#cccccc" />
+          <Text style={styles.noAppointmentsText}>No upcoming appointments</Text>
+          <TouchableOpacity
+            style={styles.scheduleButton}
+            onPress={() => navigation.navigate('Appointments')}
+          >
+            <Text style={styles.scheduleButtonText}>Schedule Now</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    
+    return (
+      <View style={styles.upcomingAppointmentsContainer}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.upcomingAppointmentsTitle}>Your Appointments</Text>
+          <TouchableOpacity onPress={() => navigation.navigate('Appointments')}>
+            <Text style={styles.viewAllText}>View All</Text>
+          </TouchableOpacity>
+        </View>
+        
+        {upcomingAppointment && (
+          <>
+            <Text style={styles.upcomingLabel}>Next Appointment</Text>
+            <AppointmentCard
+              key={upcomingAppointment.id}
+              appointment={upcomingAppointment}
+              onViewDetails={() => navigation.navigate("Appointments", { 
+                focusAppointmentId: upcomingAppointment.id 
+              })}
+              isUpcoming={true}
+            />
+          </>
+        )}
+        
+        {otherAppointments.length > 0 && (
+          <>
+            <Text style={styles.otherAppointmentsLabel}>Other Appointments</Text>
+            {otherAppointments.map(appointment => (
+              <AppointmentCard
+                key={appointment.id}
+                appointment={appointment}
+                onViewDetails={() => navigation.navigate("Appointments", { 
+                  focusAppointmentId: appointment.id 
+                })}
+              />
+            ))}
+          </>
+        )}
+      </View>
+    );
+  }, [appointments, upcomingAppointment, otherAppointments, navigation]);
+
+  return (
+    <SafeAreaView style={styles.safeContainer}>
+      {renderHeader}
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={["#003580", "#FFD700"]}
+            tintColor="#003580"
+          />
+        }
+        showsVerticalScrollIndicator={false}
+      >
+        {renderServiceGrid}
+        <MedicalFinancialSection navigation={navigation} hospitals={HOSPITALS} />
+        {renderAppointmentsSection}
+        <Text style={styles.sectionTitle}>District Office Location</Text>
+        <AddressCard address={OFFICE_ADDRESS} />
+        {renderNewsSection}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 function HomeStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -558,12 +587,6 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
   },
-  upcomingAppointmentsTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 10,
-  },
   horizontalNewsContainer: {
     paddingVertical: 10,
   },
@@ -628,5 +651,19 @@ const styles = StyleSheet.create({
   retryText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
+  },
+  upcomingLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FF8F00',
+    marginBottom: 8,
+    marginTop: 5,
+  },
+  otherAppointmentsLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    marginTop: 15,
+    marginBottom: 8,
   },
 });
