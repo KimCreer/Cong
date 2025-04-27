@@ -198,41 +198,61 @@ export default function InfoScreen() {
                         </View>
                         <Divider style={styles.divider} />
                         
-                        <TouchableOpacity style={styles.contactItem} onPress={() => openLink('https://maps.app.goo.gl/')}>
+                        <TouchableOpacity style={styles.contactItem} onPress={() => openLink('https://maps.app.goo.gl/fJRhAfEWSjfvjUVR7')}>
                             <Icon name="map-marker" size={22} color="#0275d8" style={styles.contactIcon} />
                             <View style={styles.contactTextContainer}>
                                 <Text style={styles.contactLabel}>District Office</Text>
-                                <Text style={styles.contactText}>123 Legislative Building, District Ave.</Text>
+                                <Text style={styles.contactText}>3rd Floor, Building A, Alabang Central Market, 1770, Muntinlupa City</Text>
                             </View>
                             <Icon name="chevron-right" size={22} color="#0275d8" />
                         </TouchableOpacity>
                         
-                        <TouchableOpacity style={styles.contactItem} onPress={() => Linking.openURL('tel:+123456789')}>
+                        <TouchableOpacity style={styles.contactItem} onPress={() => Linking.openURL('tel:8567-7431')}>
                             <Icon name="phone" size={22} color="#0275d8" style={styles.contactIcon} />
                             <View style={styles.contactTextContainer}>
                                 <Text style={styles.contactLabel}>Office Phone</Text>
-                                <Text style={styles.contactText}>(123) 456-7890</Text>
+                                <Text style={styles.contactText}>8567-7431</Text>
                             </View>
                             <Icon name="chevron-right" size={22} color="#0275d8" />
                         </TouchableOpacity>
-                        
-                        <TouchableOpacity style={styles.contactItem} onPress={() => Linking.openURL('mailto:jimmy.fresnedi@congress.gov')}>
+
+                        <TouchableOpacity style={styles.contactItem} onPress={() => Linking.openURL('mailto:district.munticongress@gmail.com')}>
                             <Icon name="email" size={22} color="#0275d8" style={styles.contactIcon} />
                             <View style={styles.contactTextContainer}>
                                 <Text style={styles.contactLabel}>Email</Text>
-                                <Text style={styles.contactText}>jimmy.fresnedi@congress.gov</Text>
+                                <Text style={styles.contactText}>district.munticongress@gmail.com</Text>
+                            </View>
+                            <Icon name="chevron-right" size={22} color="#0275d8" />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.contactItem} onPress={() => openLink('https://maps.app.goo.gl/Qm1i3EdXfxPr8jMWA')}>
+                            <Icon name="map-marker" size={22} color="#0275d8" style={styles.contactIcon} />
+                            <View style={styles.contactTextContainer}>
+                                <Text style={styles.contactLabel}>Legislative Office</Text>
+                                <Text style={styles.contactText}>Room 425, South Wing Annex Building House of Representatives, Constitution Hills 1126, Quezon City</Text>
                             </View>
                             <Icon name="chevron-right" size={22} color="#0275d8" />
                         </TouchableOpacity>
                         
-                        <TouchableOpacity style={styles.contactItem} onPress={() => openLink('https://www.jimmyfresnedi.gov')}>
-                            <Icon name="web" size={22} color="#0275d8" style={styles.contactIcon} />
+                        <TouchableOpacity style={styles.contactItem} onPress={() => Linking.openURL('tel:8442-4205')}>
+                            <Icon name="phone" size={22} color="#0275d8" style={styles.contactIcon} />
                             <View style={styles.contactTextContainer}>
-                                <Text style={styles.contactLabel}>Website</Text>
-                                <Text style={styles.contactText}>www.jimmyfresnedi.gov</Text>
+                                <Text style={styles.contactLabel}>Office Phone</Text>
+                                <Text style={styles.contactText}>8442-4205</Text>
                             </View>
                             <Icon name="chevron-right" size={22} color="#0275d8" />
                         </TouchableOpacity>
+                        
+                        <TouchableOpacity style={styles.contactItem} onPress={() => Linking.openURL('mailto:jaime.fresnedi@house.gov.ph')}>
+                            <Icon name="email" size={22} color="#0275d8" style={styles.contactIcon} />
+                            <View style={styles.contactTextContainer}>
+                                <Text style={styles.contactLabel}>Email</Text>
+                                <Text style={styles.contactText}>jaime.fresnedi@house.gov.ph</Text>
+                            </View>
+                            <Icon name="chevron-right" size={22} color="#0275d8" />
+                        </TouchableOpacity>
+                        
+              
                     </Card.Content>
                 </Card>
 
