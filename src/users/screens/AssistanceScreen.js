@@ -563,12 +563,13 @@ const AssistanceScreen = () => {
             </View>
             
             <Text style={styles.noteText}>
-              {hospital.type === 'extensive' || hospital.type === 'endorsement'
-                ? 'Tatawagan kayo ng social worker within 2-3 working days.'
-                : hospital.type === 'guarantee'
-                ? 'Ang guarantee letter requests ay ipro-process within 1-2 working days.'
-                : 'Expect a response within 3-5 working days.'}
-            </Text>
+          {hospital.type === 'extensive' || hospital.type === 'endorsement'
+            ? 'I-check ang status ng inyong application sa app within 2-3 working days.'
+            : hospital.type === 'guarantee'
+            ? 'Ang guarantee letter requests ay ipro-process at makikita sa app within 1-2 working days.'
+            : 'Maari ninyong i-check ang inyong application status sa app within 3-5 working days.'}
+        </Text>
+
             
             {/* Submit Button */}
             <TouchableOpacity 

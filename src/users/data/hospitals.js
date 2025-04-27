@@ -26,10 +26,13 @@ export const HOSPITALS = [
     logo: "https://muntinlupacity.gov.ph/wp-content/uploads/2022/10/OSMUN.png",
     color: "#4CAF50",
     requirements: [
-      "Medical Certificate",
-      "Quotation/Bill",
+      "Clinical Abstract (In-Patients) / Medical Certificate (Outpatients)",
+      "Certification of Unavailability",
+      "Laboratory Results",
+      "Social Case Study",
       "Valid ID",
-      "Barangay Certificate of Indigency"
+      "Voter's ID",
+      "Certificate of Indigency"
     ]
   },
   { 
@@ -40,9 +43,12 @@ export const HOSPITALS = [
     logo: "https://scontent.fmnl37-2.fna.fbcdn.net/v/t39.30808-6/342870921_6275387025842614_9199866973637645029_n.jpg?_nc_cat=103&ccb=1-7&_nc_sid=6ee11a&_nc_eui2=AeEBeFy3lEcSeqbQtTe-cZkRBV1KD5FTXBgFXUoPkVNcGAmhufmsCwvg-U_0nGFwvz5b1y1-dE8gC7H3S_ApA4EK&_nc_ohc=IOhzu3wOLNMQ7kNvwGhYyoA&_nc_oc=Adm7AAbmBbH6hmOxP7BTE5ck77ZqipRmfvyiIy-kBH3YTz6X2VQ3VWa8WqbpT4WTpjs&_nc_zt=23&_nc_ht=scontent.fmnl37-2.fna&_nc_gid=DMtL5P6b2TJpLefNQ_j1tw&oh=00_AfGGjSQX1dXB7mQv5EhTqWYwkFIGma4ogi3mKSErXoZYGw&oe=68144ACE",
     color: "#4CAF50",
     requirements: [
-      "Medical Certificate",
-      "Quotation/Bill",
+      "Clinical Abstract (In-Patients) / Medical Certificate (Outpatients)",
+      "Certification of Unavailability",
+      "Laboratory Results",
+      "Social Case Study",
       "Valid ID",
+      "Voter's ID",
       "Certificate of Indigency"
     ]
   },
@@ -54,9 +60,12 @@ export const HOSPITALS = [
     logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQIAJ_SwUVRtVKZtqZ7TO5yEEigqU3DG8KJfg&s",
     color: "#4CAF50",
     requirements: [
-      "Medical Certificate",
-      "Quotation/Bill",
+      "Clinical Abstract (In-Patients) / Medical Certificate (Outpatients)",
+      "Certification of Unavailability",
+      "Laboratory Results",
+      "Social Case Study",
       "Valid ID",
+      "Voter's ID",
       "Certificate of Indigency"
     ]
   },

@@ -15,7 +15,6 @@ import PropTypes from 'prop-types';
 // Constants
 const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/80';
 const FILTER_OPTIONS = [
-  { id: 'all', label: 'All Programs', color: '#003580' },
   { id: 'guarantee', label: 'Guarantee', color: '#4CAF50' },
   { id: 'medical-financial', label: 'Medical Financial', color: '#2196F3' },
   { id: 'dswd-medical', label: 'DSWD Medical', color: '#5E35B1' },

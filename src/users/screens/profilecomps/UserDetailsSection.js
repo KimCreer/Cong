@@ -25,7 +25,7 @@ const UserDetailsSection = ({
   updatedUser, 
   isEditing, 
   setUpdatedUser, 
-  animatedStyle = {}  // Default value set here
+  animatedStyle = {}
 }) => {
   const userDetailsFields = [
     "firstName", "lastName", "email", "dob", 
@@ -53,27 +53,28 @@ const UserDetailsSection = ({
               {field.charAt(0).toUpperCase() + field.slice(1)}:
             </Text>
           </View>
-          {isEditing ? (
-            <TextInput
-              style={styles.editableDetailValue}
-              value={updatedUser[field] || ''}
-              onChangeText={(text) => setUpdatedUser({ ...updatedUser, [field]: text })}
-              placeholder={`Enter ${field}`}
-              keyboardType={field === "phone" ? "phone-pad" : "default"}
-              editable={field !== "phone"}
-            />
-          ) : (
-            <Text style={styles.detailValue} numberOfLines={1}>
-              {user[field] || "Not specified"}
-            </Text>
-          )}
+          <View style={styles.detailValueContainer}>
+            {isEditing ? (
+              <TextInput
+                style={styles.editableDetailValue}
+                value={updatedUser[field] || ''}
+                onChangeText={(text) => setUpdatedUser({ ...updatedUser, [field]: text })}
+                placeholder={`Enter ${field}`}
+                keyboardType={field === "phone" ? "phone-pad" : "default"}
+                editable={field !== "phone"}
+              />
+            ) : (
+              <Text style={styles.detailValue} numberOfLines={1}>
+                {user[field] || "Not specified"}
+              </Text>
+            )}
+          </View>
         </View>
       ))}
     </Animated.View>
   );
 };
 
-// PropTypes for type checking
 UserDetailsSection.propTypes = {
   user: PropTypes.object.isRequired,
   updatedUser: PropTypes.object.isRequired,
@@ -120,7 +121,10 @@ const styles = {
   detailLabelContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    width: '40%', // Fixed width for label container
+  },
+  detailValueContainer: {
+    width: '60%', // Fixed width for value container
   },
   detailIcon: {
     marginRight: 8,
@@ -130,22 +134,19 @@ const styles = {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
+    width: '100%', // Ensure label takes full width of its container
   },
   detailValue: {
     fontSize: 14,
     color: '#333',
     fontWeight: '600',
-    flex: 1,
     textAlign: 'left',
-    paddingLeft: -100,
   },
   editableDetailValue: {
     fontSize: 14,
     color: '#333',
     fontWeight: '600',
-    flex: 1,
     textAlign: 'left',
-    paddingLeft: -100,
     borderBottomWidth: 1,
     borderBottomColor: '#ddd',
     paddingBottom: 2,

@@ -49,29 +49,31 @@ const EmergencyContactSection = ({
               {field.charAt(0).toUpperCase() + field.slice(1)}:
             </Text>
           </View>
-          {isEditing ? (
-            <TextInput
-              style={[
-                styles.editableDetailValue,
-                field === 'Phone' && styles.importantField
-              ]}
-              value={updatedUser[field] || ''}
-              onChangeText={(text) => setUpdatedUser({ ...updatedUser, [field]: text })}
-              placeholder={`Enter ${field}`}
-              keyboardType={field === "Phone" ? "phone-pad" : "default"}
-              importantForAccessibility={field === 'Phone' ? 'yes' : 'no'}
-            />
-          ) : (
-            <Text 
-              style={[
-                styles.detailValue, 
-                field === 'Phone' && styles.importantValue
-              ]} 
-              numberOfLines={1}
-            >
-              {user[field] || "Not specified"}
-            </Text>
-          )}
+          <View style={styles.detailValueContainer}>
+            {isEditing ? (
+              <TextInput
+                style={[
+                  styles.editableDetailValue,
+                  field === 'Phone' && styles.importantField
+                ]}
+                value={updatedUser[field] || ''}
+                onChangeText={(text) => setUpdatedUser({ ...updatedUser, [field]: text })}
+                placeholder={`Enter ${field}`}
+                keyboardType={field === "Phone" ? "phone-pad" : "default"}
+                importantForAccessibility={field === 'Phone' ? 'yes' : 'no'}
+              />
+            ) : (
+              <Text 
+                style={[
+                  styles.detailValue, 
+                  field === 'Phone' && styles.importantValue
+                ]} 
+                numberOfLines={1}
+              >
+                {user[field] || "Not specified"}
+              </Text>
+            )}
+          </View>
         </View>
       ))}
       
@@ -137,7 +139,10 @@ const styles = {
   detailLabelContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    width: '40%', // Fixed width to match PersonalInfo section
+  },
+  detailValueContainer: {
+    width: '60%', // Fixed width to match PersonalInfo section
   },
   detailIcon: {
     marginRight: 8,
@@ -152,7 +157,6 @@ const styles = {
     fontSize: 14,
     color: '#333',
     fontWeight: '600',
-    flex: 1,
     textAlign: 'left',
   },
   importantValue: {
@@ -163,7 +167,6 @@ const styles = {
     fontSize: 14,
     color: '#333',
     fontWeight: '600',
-    flex: 1,
     textAlign: 'left',
     borderBottomWidth: 1,
     borderBottomColor: '#ddd',
