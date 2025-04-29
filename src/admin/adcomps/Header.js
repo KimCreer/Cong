@@ -17,12 +17,6 @@ const Header = ({ activeTab, setActiveTab, adminProfile }) => {
                     >
                         <Ionicons name="stats-chart" size={24} color="#003366" />
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.fbHeaderIcon}>
-                        <Ionicons name="notifications-outline" size={24} color="#003366" />
-                        <View style={styles.notificationBadge}>
-                            <Text style={styles.notificationBadgeText}>3</Text>
-                        </View>
-                    </TouchableOpacity>
                     <TouchableOpacity 
                         style={styles.fbProfileButton}
                         onPress={() => setActiveTab('profile')}

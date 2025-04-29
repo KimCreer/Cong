@@ -483,17 +483,7 @@ const AdminDashboard = () => {
                 </View>
             </View>
 
-            <View style={[styles.activityContainer, isLandscape && styles.activityContainerLandscape]}>
-                <Text style={styles.sectionTitle}>Recent Activities</Text>
-                {recentActivities.length > 0 ? (
-                    <ActivityList activities={recentActivities} />
-                ) : (
-                    <View style={styles.emptyContainer}>
-                        <MaterialIcons name="history" size={24} color="#999" />
-                        <Text style={styles.emptyText}>No recent activities</Text>
-                    </View>
-                )}
-            </View>
+      
         </ScrollView>
     );
 

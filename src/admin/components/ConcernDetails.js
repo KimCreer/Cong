@@ -13,7 +13,7 @@ import {
     Dimensions,
     Platform
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { 
     getFirestore, 
     doc, 
@@ -25,6 +25,25 @@ import { format } from 'date-fns';
 import LinearGradient from 'react-native-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
+
+const categoryData = {
+  'General': {
+    icon: 'alert-circle-outline',
+    color: '#0275d8',
+  },
+  'Issue': {
+    icon: 'alert-octagon',
+    color: '#dc3545',
+  },
+  'Complaint': {
+    icon: 'account-alert',
+    color: '#fd7e14',
+  },
+  'Suggestion': {
+    icon: 'lightbulb-on',
+    color: '#ffc107',
+  }
+};
 
 const ConcernDetails = () => {
     const navigation = useNavigation();
@@ -154,6 +173,76 @@ const ConcernDetails = () => {
         }
     };
 
+    const getCategoryInfo = (category) => {
+        return categoryData[category] || {
+            icon: 'help-circle',
+            color: '#9E9E9E'
+        };
+    };
+
+    const renderCategorySpecificFields = () => {
+        if (!concern) return null;
+
+        switch(concern.category) {
+            case 'Issue':
+                return (
+                    <>
+                        {concern.urgency && (
+                            <View style={styles.section}>
+                                <Text style={styles.sectionTitle}>Urgency Level</Text>
+                                <View style={styles.detailRow}>
+                                    <MaterialCommunityIcons 
+                                        name={concern.urgency.toLowerCase() === 'high' ? 'alert' : 'clock'} 
+                                        size={20} 
+                                        color={concern.urgency.toLowerCase() === 'high' ? '#dc3545' : '#ffc107'} 
+                                    />
+                                    <Text style={styles.detailText}>{concern.urgency}</Text>
+                                </View>
+                            </View>
+                        )}
+                    </>
+                );
+            case 'Complaint':
+                return (
+                    <>
+                        {concern.against && (
+                            <View style={styles.section}>
+                                <Text style={styles.sectionTitle}>Complaint Against</Text>
+                                <View style={styles.detailRow}>
+                                    <MaterialCommunityIcons 
+                                        name="account-alert" 
+                                        size={20} 
+                                        color="#fd7e14" 
+                                    />
+                                    <Text style={styles.detailText}>{concern.against}</Text>
+                                </View>
+                            </View>
+                        )}
+                    </>
+                );
+            case 'Suggestion':
+                return (
+                    <>
+                        {concern.department && (
+                            <View style={styles.section}>
+                                <Text style={styles.sectionTitle}>Department</Text>
+                                <View style={styles.detailRow}>
+                                    <MaterialCommunityIcons 
+                                        name="office-building" 
+                                        size={20} 
+                                        color="#4A90E2" 
+                                    />
+                                    <Text style={styles.detailText}>{concern.department}</Text>
+                                </View>
+                            </View>
+                        )}
+                    </>
+                );
+            default:
+                return null;
+        }
+    };
+
     useEffect(() => {
         fetchConcern();
     }, [concernId]);
@@ -167,6 +256,8 @@ const ConcernDetails = () => {
         );
     }
 
+    const categoryInfo = getCategoryInfo(concern.category);
+
     return (
         <View style={styles.container}>
             <ScrollView 
@@ -175,7 +266,7 @@ const ConcernDetails = () => {
             >
                 {/* Header with gradient background */}
                 <LinearGradient
-                    colors={['#4A90E2', '#3B82F6']}
+                    colors={[categoryInfo.color, categoryInfo.color]}
                     style={styles.header}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
@@ -192,30 +283,38 @@ const ConcernDetails = () => {
                 </LinearGradient>
 
                 <View style={styles.card}>
-                    {/* Status section with icon */}
-                    <View style={styles.statusContainer}>
-                        <View style={styles.statusLeft}>
+                    {/* Category and Status section */}
+                    <View style={styles.categoryStatusContainer}>
+                        <View style={[styles.categoryBadge, { backgroundColor: categoryInfo.color }]}>
+                            <MaterialCommunityIcons 
+                                name={categoryInfo.icon} 
+                                size={16} 
+                                color="#FFF" 
+                            />
+                            <Text style={styles.categoryText}>
+                                {concern.category || 'General'}
+                            </Text>
+                        </View>
+                        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(concern.status) }]}>
                             <Ionicons 
                                 name={getStatusIcon(concern.status)} 
-                                size={24} 
-                                color={getStatusColor(concern.status)} 
-                                style={styles.statusIcon}
+                                size={16} 
+                                color="#FFF" 
                             />
-                            <View>
-                                <Text style={styles.statusLabel}>STATUS</Text>
-                                <Text style={[styles.statusText, { color: getStatusColor(concern.status) }]}>
-                                    {concern.status}
-                                </Text>
-                            </View>
-                        </View>
-                        <View style={styles.statusRight}>
-                            <Text style={styles.dateText}>
-                                {concern.formattedDate}
-                            </Text>
-                            <Text style={styles.timeText}>
-                                {concern.formattedTime}
+                            <Text style={styles.statusText}>
+                                {concern.status}
                             </Text>
                         </View>
+                    </View>
+
+                    {/* Date and Time */}
+                    <View style={styles.dateTimeContainer}>
+                        <Text style={styles.dateText}>
+                            {concern.formattedDate}
+                        </Text>
+                        <Text style={styles.timeText}>
+                            {concern.formattedTime}
+                        </Text>
                     </View>
 
                     {/* Divider */}
@@ -224,6 +323,9 @@ const ConcernDetails = () => {
                     {/* Title and Description */}
                     <Text style={styles.title}>{concern.title || 'No title'}</Text>
                     <Text style={styles.description}>{concern.description || 'No description'}</Text>
+
+                    {/* Category-specific fields */}
+                    {renderCategorySpecificFields()}
 
                     {/* Image with improved styling */}
                     {concern.imageUrl && (
@@ -245,6 +347,17 @@ const ConcernDetails = () => {
                                 <Text style={styles.imageText}>Tap to expand</Text>
                             </LinearGradient>
                         </TouchableOpacity>
+                    )}
+
+                    {/* Location section */}
+                    {concern.location && (
+                        <View style={styles.section}>
+                            <Text style={styles.sectionTitle}>Location</Text>
+                            <View style={styles.detailRow}>
+                                <Ionicons name="location-outline" size={20} color="#4A90E2" />
+                                <Text style={styles.detailText}>{concern.location}</Text>
+                            </View>
+                        </View>
                     )}
 
                     {/* Submitted By section with avatar */}
@@ -278,17 +391,6 @@ const ConcernDetails = () => {
                             </View>
                         </View>
                     </View>
-
-                    {/* Location section */}
-                    {concern.location && (
-                        <View style={styles.section}>
-                            <Text style={styles.sectionTitle}>Location</Text>
-                            <View style={styles.detailRow}>
-                                <Ionicons name="location-outline" size={20} color="#4A90E2" />
-                                <Text style={styles.detailText}>{concern.location}</Text>
-                            </View>
-                        </View>
-                    )}
 
                     {/* Last updated section */}
                     {concern.formattedUpdatedDate && (
@@ -431,33 +533,41 @@ const styles = StyleSheet.create({
         shadowRadius: 8,
         elevation: 2,
     },
-    statusContainer: {
+    categoryStatusContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 16,
+        marginBottom: 12,
     },
-    statusLeft: {
+    categoryBadge: {
         flexDirection: 'row',
         alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 20,
     },
-    statusIcon: {
-        marginRight: 12,
-    },
-    statusLabel: {
-        fontSize: 12,
+    categoryText: {
+        color: '#FFF',
+        fontSize: 14,
         fontWeight: '600',
-        color: '#888',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
+        marginLeft: 6,
+    },
+    statusBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 20,
     },
     statusText: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginTop: 2,
+        color: '#FFF',
+        fontSize: 14,
+        fontWeight: '600',
+        marginLeft: 6,
     },
-    statusRight: {
+    dateTimeContainer: {
         alignItems: 'flex-end',
+        marginBottom: 16,
     },
     dateText: {
         color: '#555',

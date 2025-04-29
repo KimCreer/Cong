@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,18 +13,30 @@ import {
   SafeAreaView,
   Alert,
   RefreshControl,
+  Keyboard,
+  LayoutAnimation,
+  UIManager
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 
+// Enable LayoutAnimation for Android
+if (UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 const AssistanceScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
+  const scrollViewRef = useRef(null);
+  const modalScrollViewRef = useRef(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [focusedInput, setFocusedInput] = useState(null);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -153,6 +165,29 @@ const AssistanceScreen = () => {
       }));
     }
   }, [hospital]);
+
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      (e) => {
+        setKeyboardHeight(e.endCoordinates.height);
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      }
+    );
+
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
 
   const handleInputChange = (name, value) => {
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -311,27 +346,36 @@ const AssistanceScreen = () => {
         <>
           <Text style={styles.label}>Pangalan ng Namatay *</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, focusedInput === 'medicalCondition' && styles.inputFocused]}
             placeholder="Buong pangalan ng namatay"
             value={formData.medicalCondition}
             onChangeText={(text) => handleInputChange('medicalCondition', text)}
+            onFocus={() => setFocusedInput('medicalCondition')}
+            onBlur={() => setFocusedInput(null)}
+            returnKeyType="next"
           />
 
           <Text style={styles.label}>Funeral Home</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, focusedInput === 'hospitalName' && styles.inputFocused]}
             placeholder="Pangalan ng funeral home"
             value={formData.hospitalName}
             onChangeText={(text) => handleInputChange('hospitalName', text)}
+            onFocus={() => setFocusedInput('hospitalName')}
+            onBlur={() => setFocusedInput(null)}
+            returnKeyType="next"
           />
 
           <Text style={styles.label}>Estimated Burial Costs (₱)</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, focusedInput === 'estimatedCost' && styles.inputFocused]}
             placeholder="Halaga ng kailangan"
             value={formData.estimatedCost}
             onChangeText={(text) => handleInputChange('estimatedCost', text)}
+            onFocus={() => setFocusedInput('estimatedCost')}
+            onBlur={() => setFocusedInput(null)}
             keyboardType="numeric"
+            returnKeyType="done"
           />
         </>
       );
@@ -348,28 +392,134 @@ const AssistanceScreen = () => {
         
         <Text style={styles.label}>Medical Condition *</Text>
         <TextInput
-          style={[styles.input, styles.textArea]}
+          style={[styles.input, styles.textArea, focusedInput === 'medicalCondition' && styles.inputFocused]}
           placeholder="Ilarawan ang medical condition o kailangang procedure"
           value={formData.medicalCondition}
           onChangeText={(text) => handleInputChange('medicalCondition', text)}
+          onFocus={() => setFocusedInput('medicalCondition')}
+          onBlur={() => setFocusedInput(null)}
           multiline
+          returnKeyType="next"
         />
 
         <Text style={styles.label}>Estimated Costs (₱) *</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, focusedInput === 'estimatedCost' && styles.inputFocused]}
           placeholder="Halaga ng kailangan"
           value={formData.estimatedCost}
           onChangeText={(text) => handleInputChange('estimatedCost', text)}
+          onFocus={() => setFocusedInput('estimatedCost')}
+          onBlur={() => setFocusedInput(null)}
           keyboardType="numeric"
+          returnKeyType="done"
         />
       </>
     );
   };
 
+  const renderModalContent = () => (
+    <ScrollView 
+      ref={modalScrollViewRef}
+      style={styles.modalContent}
+      contentContainerStyle={[
+        styles.modalContentContainer,
+        { paddingBottom: keyboardHeight + 20 }
+      ]}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      overScrollMode="always"
+      scrollEventThrottle={16}
+      nestedScrollEnabled={true}
+      keyboardDismissMode="interactive"
+      automaticallyAdjustContentInsets={false}
+      contentInsetAdjustmentBehavior="never"
+    >
+      <Text style={styles.modalSubtitle}>{hospital.name}</Text>
+
+      <Text style={styles.label}>Buong Pangalan *</Text>
+      <TextInput
+        style={[styles.input, focusedInput === 'fullName' && styles.inputFocused]}
+        placeholder={hospital.type === 'dswd-burial' ? "Iyong buong pangalan" : "Pangalan ng pasyente"}
+        value={formData.fullName}
+        onChangeText={(text) => handleInputChange('fullName', text)}
+        onFocus={() => setFocusedInput('fullName')}
+        onBlur={() => setFocusedInput(null)}
+        returnKeyType="next"
+      />
+      
+      <Text style={styles.label}>Numero ng Telepono *</Text>
+      <TextInput
+        style={[styles.input, focusedInput === 'contactNumber' && styles.inputFocused]}
+        placeholder="Iyong mobile number"
+        value={formData.contactNumber}
+        onChangeText={(text) => handleInputChange('contactNumber', text)}
+        onFocus={() => setFocusedInput('contactNumber')}
+        onBlur={() => setFocusedInput(null)}
+        keyboardType="phone-pad"
+        returnKeyType="next"
+      />
+      
+      <Text style={styles.label}>Email Address</Text>
+      <TextInput
+        style={[styles.input, focusedInput === 'email' && styles.inputFocused]}
+        placeholder="Iyong email address"
+        value={formData.email}
+        onChangeText={(text) => handleInputChange('email', text)}
+        onFocus={() => setFocusedInput('email')}
+        onBlur={() => setFocusedInput(null)}
+        keyboardType="email-address"
+        returnKeyType="next"
+      />
+      
+      <Text style={styles.label}>Kompletong Address *</Text>
+      <TextInput
+        style={[styles.input, focusedInput === 'address' && styles.inputFocused]}
+        placeholder="Iyong kompletong address"
+        value={formData.address}
+        onChangeText={(text) => handleInputChange('address', text)}
+        onFocus={() => setFocusedInput('address')}
+        onBlur={() => setFocusedInput(null)}
+        returnKeyType="next"
+      />
+
+      {renderFormFields()}
+      
+      <Text style={styles.requirementsTitle}>Pakihanda ang mga sumusunod:</Text>
+      <View style={styles.requirementsList}>
+        {hospital.requirements.map((item, index) => (
+          <Text key={index} style={styles.requirementModalItem}>• {item}</Text>
+        ))}
+      </View>
+      
+      <Text style={styles.noteText}>
+        {hospital.type === 'extensive' || hospital.type === 'endorsement'
+          ? 'I-check ang status ng inyong application sa app within 2-3 working days.'
+          : hospital.type === 'guarantee'
+          ? 'Ang guarantee letter requests ay ipro-process at makikita sa app within 1-2 working days.'
+          : 'Maari ninyong i-check ang inyong application status sa app within 3-5 working days.'}
+      </Text>
+
+      <TouchableOpacity 
+        style={[styles.button, styles.submitButton, { backgroundColor: hospital.color || '#003580' }]}
+        onPress={handleSubmit}
+        disabled={isLoading}
+      >
+        {isLoading ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <>
+            <FontAwesome5 name="paper-plane" size={16} color="#FFFFFF" />
+            <Text style={styles.buttonText}>I-submit ang Application</Text>
+          </>
+        )}
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView 
+        ref={scrollViewRef}
         contentContainerStyle={styles.container}
         refreshControl={
           <RefreshControl
@@ -377,10 +527,13 @@ const AssistanceScreen = () => {
             onRefresh={onRefresh}
             colors={['#003580']}
             tintColor="#003580"
+            progressViewOffset={40}
           />
         }
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        overScrollMode="never"
       >
-        {/* Header Section */}
         <View style={styles.header}>
           <TouchableOpacity 
             onPress={() => navigation.goBack()} 
@@ -391,7 +544,6 @@ const AssistanceScreen = () => {
           <Text style={styles.headerTitle}>{hospital.name}</Text>
         </View>
 
-        {/* Program Info Section */}
         <View style={styles.programInfoContainer}>
           <Image 
             source={{ uri: hospital.logo }} 
@@ -411,7 +563,6 @@ const AssistanceScreen = () => {
           </Text>
         </View>
 
-        {/* Patient Status Selector - Only show for medical-financial and endorsement */}
         {['medical-financial', 'endorsement'].includes(hospital.type) && (
           <View style={styles.selectorContainer}>
             <Text style={styles.selectorLabel}>Status ng Pasyente:</Text>
@@ -438,7 +589,6 @@ const AssistanceScreen = () => {
           </View>
         )}
 
-        {/* Requirements Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Mga Kailangang Dokumento:</Text>
           {hospital.requirements.map((item, index) => (
@@ -454,7 +604,6 @@ const AssistanceScreen = () => {
           ))}
         </View>
 
-        {/* Important Notes */}
         <View style={styles.noteBox}>
           <FontAwesome5 name="info-circle" size={16} color="#003580" />
           <Text style={styles.noteText}>
@@ -466,7 +615,6 @@ const AssistanceScreen = () => {
           </Text>
         </View>
 
-        {/* Action Buttons */}
         <View style={styles.actionButtonsContainer}>
           <TouchableOpacity 
             style={[styles.button, styles.contactButton]}
@@ -498,102 +646,34 @@ const AssistanceScreen = () => {
         </View>
       </ScrollView>
 
-      {/* Application Modal */}
       <Modal
         visible={modalVisible}
         animationType="slide"
         onRequestClose={() => setModalVisible(false)}
+        statusBarTranslucent={true}
+        transparent={false}
       >
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setModalVisible(false)}>
+            <TouchableOpacity 
+              onPress={() => {
+                Keyboard.dismiss();
+                setModalVisible(false);
+              }}
+            >
               <FontAwesome5 name="times" size={20} color="#003580" />
             </TouchableOpacity>
             <Text style={styles.modalTitle}>Application Form</Text>
             <View style={{ width: 20 }} />
           </View>
           
-          <ScrollView style={styles.modalContent}>
-            <Text style={styles.modalSubtitle}>{hospital.name}</Text>
-
-            {/* Common Fields */}
-            <Text style={styles.label}>Buong Pangalan *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={hospital.type === 'dswd-burial' ? "Iyong buong pangalan" : "Pangalan ng pasyente"}
-              value={formData.fullName}
-              onChangeText={(text) => handleInputChange('fullName', text)}
-            />
-            
-            <Text style={styles.label}>Numero ng Telepono *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Iyong mobile number"
-              value={formData.contactNumber}
-              onChangeText={(text) => handleInputChange('contactNumber', text)}
-              keyboardType="phone-pad"
-            />
-            
-            <Text style={styles.label}>Email Address</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Iyong email address"
-              value={formData.email}
-              onChangeText={(text) => handleInputChange('email', text)}
-              keyboardType="email-address"
-            />
-            
-            <Text style={styles.label}>Kompletong Address *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Iyong kompletong address"
-              value={formData.address}
-              onChangeText={(text) => handleInputChange('address', text)}
-            />
-
-            {/* Program-specific Fields */}
-            {renderFormFields()}
-            
-            {/* Requirements Reminder */}
-            <Text style={styles.requirementsTitle}>Pakihanda ang mga sumusunod:</Text>
-            <View style={styles.requirementsList}>
-              {hospital.requirements.map((item, index) => (
-                <Text key={index} style={styles.requirementModalItem}>• {item}</Text>
-              ))}
-            </View>
-            
-            <Text style={styles.noteText}>
-          {hospital.type === 'extensive' || hospital.type === 'endorsement'
-            ? 'I-check ang status ng inyong application sa app within 2-3 working days.'
-            : hospital.type === 'guarantee'
-            ? 'Ang guarantee letter requests ay ipro-process at makikita sa app within 1-2 working days.'
-            : 'Maari ninyong i-check ang inyong application status sa app within 3-5 working days.'}
-        </Text>
-
-            
-            {/* Submit Button */}
-            <TouchableOpacity 
-              style={[styles.button, styles.submitButton, { backgroundColor: hospital.color || '#003580' }]}
-              onPress={handleSubmit}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <>
-                  <FontAwesome5 name="paper-plane" size={16} color="#FFFFFF" />
-                  <Text style={styles.buttonText}>I-submit ang Application</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </ScrollView>
+          {renderModalContent()}
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
 };
 
-// Styles remain the same as in your original code
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -772,8 +852,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   modalContent: {
-    padding: 20,
-    paddingBottom: 30,
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  modalContentContainer: {
+    paddingBottom: 20,
   },
   label: {
     fontSize: 16,
@@ -789,6 +872,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#E0E0E0',
+  },
+  inputFocused: {
+    borderColor: '#003580',
+    backgroundColor: '#FFFFFF',
+    elevation: 3,
   },
   disabledInput: {
     opacity: 0.7,
@@ -818,6 +906,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#003580',
     padding: 16,
     marginTop: 10,
+    marginBottom: 30,
   },
 });
 

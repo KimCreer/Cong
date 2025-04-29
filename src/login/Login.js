@@ -798,10 +798,13 @@ export default function Login() {
         );
     };
 
-    // Skip login (for demo purposes)
-    const skipLogin = () => {
-        navigation.navigate("Dashboard");
-    };
+  // Update the skipLogin function to reset navigation stack
+const skipLogin = () => {
+    navigation.reset({
+        index: 0,
+        routes: [{ name: "Dashboard" }]
+    });
+};
 
     // Render phone input screen
     const renderPhoneInput = () => (

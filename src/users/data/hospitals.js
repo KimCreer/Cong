@@ -121,7 +121,7 @@ export const HOSPITALS = [
     name: "Amang Rodriguez Memorial Medical Center", 
     type: "medical-financial",
     category: "DOH Hospital",
-    logo: "https://armmc.doh.gov.ph/wp-content/uploads/Web_Images/cropped-cropped-armmc.png",
+    logo: "https://upload.wikimedia.org/wikipedia/en/3/38/Amang_Rodriguez_Memorial_Medical_Center_logo.jpg",
     color: "#2196F3",
     requirements: [
       "Medical Certificate",
@@ -149,7 +149,7 @@ export const HOSPITALS = [
     name: "Lung Center of the Philippines", 
     type: "medical-financial",
     category: "DOH Hospital",
-    logo:"https://ntp.doh.gov.ph/wp-content/uploads/2021/04/lcp_logo.png",
+    logo:"https://lh5.googleusercontent.com/proxy/dRAab9M-hN-r0Z7HXReEhkI9h2D1M9NZMvolD_z96JEQvXZDDsKdPIzM6QjQlEQPl9eHsIhwCHkTrgYGHDUWQ1yivu91XBRb7WsDPgfOWlU",
     color: "#2196F3",
     requirements: [
       "Medical Certificate",

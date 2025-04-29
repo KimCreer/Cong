@@ -9,7 +9,8 @@ import {
     RefreshControl,
     Alert,
     Modal,
-    Platform
+    Platform,
+    ScrollView
 } from "react-native";
 import { FontAwesome5, MaterialIcons, Feather } from "@expo/vector-icons";
 import { getFirestore, 
@@ -43,6 +44,11 @@ const STATUS_COLORS = {
 const SORT_OPTIONS = [
     { id: 'date_asc', label: 'Time (Earliest First)', icon: 'arrow-down' },
     { id: 'date_desc', label: 'Time (Latest First)', icon: 'arrow-up' }
+];
+
+const TAB_OPTIONS = [
+    { id: 'pending', label: 'Pending' },
+    { id: 'history', label: 'History' }
 ];
 
 const safeFormatDate = (dateValue, formatString, fallbackText = 'Not available') => {
@@ -81,6 +87,7 @@ const validateTime = (timeValue) => {
 const AppointmentsTab = () => {
     const navigation = useNavigation();
     const [appointments, setAppointments] = useState([]);
+    const [historyAppointments, setHistoryAppointments] = useState([]);
     const [filteredAppointments, setFilteredAppointments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -90,6 +97,7 @@ const AppointmentsTab = () => {
     const [showTypeFilter, setShowTypeFilter] = useState(false);
     const [showSortOptions, setShowSortOptions] = useState(false);
     const [showActionButtons, setShowActionButtons] = useState({});
+    const [activeTab, setActiveTab] = useState('pending');
 
     const db = getFirestore();
 
@@ -123,16 +131,26 @@ const AppointmentsTab = () => {
             setRefreshing(true);
             const orderDirection = sortOption.id.includes('asc') ? 'asc' : 'desc';
             
-            const q = query(
+            // Fetch pending appointments
+            const pendingQuery = query(
                 collection(db, 'appointments'),
                 where('status', '==', 'Pending'),
                 orderBy('createdAt', orderDirection)
             );
             
-            const querySnapshot = await getDocs(q);
-            const appointmentsData = [];
+            // Fetch historical appointments (all except pending)
+            const historyQuery = query(
+                collection(db, 'appointments'),
+                where('status', 'in', ['Confirmed', 'Cancelled', 'Completed', 'Rejected']),
+                orderBy('updatedAt', 'desc')
+            );
             
-            for (const docSnapshot of querySnapshot.docs) {
+            const [pendingSnapshot, historySnapshot] = await Promise.all([
+                getDocs(pendingQuery),
+                getDocs(historyQuery)
+            ]);
+            
+            const processAppointment = async (docSnapshot) => {
                 const appointmentData = docSnapshot.data();
                 let userDetails = { firstName: 'Unknown', lastName: 'User' };
                 
@@ -149,7 +167,7 @@ const AppointmentsTab = () => {
                                              appointmentData.date.toDate().getTime() !== 
                                              appointmentData.createdAt.toDate().getTime();
                 
-                appointmentsData.push({
+                return {
                     id: docSnapshot.id,
                     ...appointmentData,
                     formattedDate: safeFormatDate(appointmentData.date, 'MMM dd, yyyy'),
@@ -159,17 +177,33 @@ const AppointmentsTab = () => {
                         'MMM dd, yyyy hh:mm a',
                         'Recent'
                     ),
+                    formattedUpdatedAt: safeFormatDate(
+                        appointmentData.updatedAt || appointmentData.createdAt,
+                        'MMM dd, yyyy hh:mm a',
+                        'Recent'
+                    ),
                     userFirstName: userDetails.firstName,
                     userLastName: userDetails.lastName,
                     userProfileImage: userDetails.profileImage,
                     typeInfo: typeInfo,
                     isCourtesy: appointmentData.isCourtesy || false,
                     isScheduled: appointmentData.isCourtesy ? isDifferentFromCreated : hasValidDate
-                });
+                };
+            };
+            
+            const pendingAppointments = [];
+            for (const docSnapshot of pendingSnapshot.docs) {
+                pendingAppointments.push(await processAppointment(docSnapshot));
             }
             
-            setAppointments(appointmentsData);
-            applyFilters(appointmentsData, selectedType);
+            const historyAppointments = [];
+            for (const docSnapshot of historySnapshot.docs) {
+                historyAppointments.push(await processAppointment(docSnapshot));
+            }
+            
+            setAppointments(pendingAppointments);
+            setHistoryAppointments(historyAppointments);
+            applyFiltersToCurrentTab(pendingAppointments, historyAppointments);
         } catch (error) {
             console.error("Error fetching appointments:", error);
             Alert.alert("Error", "Failed to load appointments");
@@ -179,7 +213,15 @@ const AppointmentsTab = () => {
         }
     };
 
-    const applyFilters = (data, typeFilter) => {
+    const applyFiltersToCurrentTab = (pendingData, historyData) => {
+        if (activeTab === 'pending') {
+            setFilteredAppointments(applyTypeFilter(pendingData, selectedType));
+        } else {
+            setFilteredAppointments(applyTypeFilter(historyData, selectedType));
+        }
+    };
+
+    const applyTypeFilter = (data, typeFilter) => {
         let filtered = [...data];
         
         if (typeFilter) {
@@ -188,7 +230,7 @@ const AppointmentsTab = () => {
             );
         }
         
-        setFilteredAppointments(filtered);
+        return filtered;
     };
 
     const toggleActionButtons = (appointmentId) => {
@@ -207,13 +249,9 @@ const AppointmentsTab = () => {
             
             Alert.alert("Success", "Appointment confirmed successfully");
             setShowActionButtons(prev => ({ ...prev, [appointmentId]: false }));
-            
-            setAppointments(prev => prev.filter(app => app.id !== appointmentId));
-            setFilteredAppointments(prev => prev.filter(app => app.id !== appointmentId));
         } catch (error) {
             console.error("Error confirming appointment:", error);
             Alert.alert("Error", "Failed to confirm appointment");
-            fetchAppointments();
         }
     };
 
@@ -237,13 +275,9 @@ const AppointmentsTab = () => {
                             
                             Alert.alert("Success", "Appointment rejected");
                             setShowActionButtons(prev => ({ ...prev, [appointmentId]: false }));
-                            
-                            setAppointments(prev => prev.filter(app => app.id !== appointmentId));
-                            setFilteredAppointments(prev => prev.filter(app => app.id !== appointmentId));
                         } catch (error) {
                             console.error("Error rejecting appointment:", error);
                             Alert.alert("Error", "Failed to reject appointment");
-                            fetchAppointments();
                         }
                     },
                     style: "destructive"
@@ -268,13 +302,19 @@ const AppointmentsTab = () => {
         fetchAppointments();
         
         const orderDirection = sortOption.id.includes('asc') ? 'asc' : 'desc';
-        const q = query(
+        const pendingQuery = query(
             collection(db, 'appointments'),
             where('status', '==', 'Pending'),
             orderBy('createdAt', orderDirection)
         );
             
-        const unsubscribe = onSnapshot(q, async (snapshot) => {
+        const historyQuery = query(
+            collection(db, 'appointments'),
+            where('status', 'in', ['Confirmed', 'Cancelled', 'Completed', 'Rejected']),
+            orderBy('updatedAt', 'desc')
+        );
+            
+        const unsubscribePending = onSnapshot(pendingQuery, async (snapshot) => {
             const updatedAppointments = [];
             
             for (const docSnapshot of snapshot.docs) {
@@ -314,28 +354,100 @@ const AppointmentsTab = () => {
             }
             
             setAppointments(updatedAppointments);
-            applyFilters(updatedAppointments, selectedType);
+            if (activeTab === 'pending') {
+                setFilteredAppointments(applyTypeFilter(updatedAppointments, selectedType));
+            }
         }, error => {
-            console.error("Firestore snapshot error:", error);
-            Alert.alert("Error", "Failed to sync appointments");
+            console.error("Firestore snapshot error (pending):", error);
+            Alert.alert("Error", "Failed to sync pending appointments");
         });
         
-        return () => unsubscribe();
+        const unsubscribeHistory = onSnapshot(historyQuery, async (snapshot) => {
+            const updatedAppointments = [];
+            
+            for (const docSnapshot of snapshot.docs) {
+                const appointmentData = docSnapshot.data();
+                let userDetails = { firstName: 'Unknown', lastName: 'User' };
+                
+                if (appointmentData.userId) {
+                    userDetails = await fetchUserDetails(appointmentData.userId);
+                }
+                
+                const typeKey = appointmentData.type?.replace(/ \(.*\)$/, '').toUpperCase() || 'OTHER';
+                const typeInfo = APPOINTMENT_TYPES[typeKey] || APPOINTMENT_TYPES.OTHER;
+                
+                const hasValidDate = appointmentData.date && 
+                                   !isNaN(new Date(appointmentData.date.toDate()).getTime());
+                const isDifferentFromCreated = hasValidDate && 
+                                             appointmentData.date.toDate().getTime() !== 
+                                             appointmentData.createdAt.toDate().getTime();
+                
+                updatedAppointments.push({
+                    id: docSnapshot.id,
+                    ...appointmentData,
+                    formattedDate: safeFormatDate(appointmentData.date, 'MMM dd, yyyy'),
+                    formattedTime: validateTime(appointmentData.time),
+                    formattedCreatedAt: safeFormatDate(
+                        appointmentData.createdAt, 
+                        'MMM dd, yyyy hh:mm a',
+                        'Recent'
+                    ),
+                    formattedUpdatedAt: safeFormatDate(
+                        appointmentData.updatedAt || appointmentData.createdAt,
+                        'MMM dd, yyyy hh:mm a',
+                        'Recent'
+                    ),
+                    userFirstName: userDetails.firstName,
+                    userLastName: userDetails.lastName,
+                    userProfileImage: userDetails.profileImage,
+                    typeInfo: typeInfo,
+                    isCourtesy: appointmentData.isCourtesy || false,
+                    isScheduled: appointmentData.isCourtesy ? isDifferentFromCreated : hasValidDate
+                });
+            }
+            
+            setHistoryAppointments(updatedAppointments);
+            if (activeTab === 'history') {
+                setFilteredAppointments(applyTypeFilter(updatedAppointments, selectedType));
+            }
+        }, error => {
+            console.error("Firestore snapshot error (history):", error);
+            Alert.alert("Error", "Failed to sync history appointments");
+        });
+        
+        return () => {
+            unsubscribePending();
+            unsubscribeHistory();
+        };
     }, [sortOption]);
 
     const handleTypeSelect = (type) => {
-        setSelectedType(type === selectedType ? null : type);
-        applyFilters(appointments, type === selectedType ? null : type);
+        const newSelectedType = type === selectedType ? null : type;
+        setSelectedType(newSelectedType);
+        
+        if (activeTab === 'pending') {
+            setFilteredAppointments(applyTypeFilter(appointments, newSelectedType));
+        } else {
+            setFilteredAppointments(applyTypeFilter(historyAppointments, newSelectedType));
+        }
         setShowTypeFilter(false);
     };
 
     const handleSortSelect = (option) => {
         setSortOption(option);
         setShowSortOptions(false);
-        fetchAppointments();
     };
 
-    const AppointmentCard = ({ appointment }) => {
+    const handleTabSelect = (tabId) => {
+        setActiveTab(tabId);
+        if (tabId === 'pending') {
+            setFilteredAppointments(applyTypeFilter(appointments, selectedType));
+        } else {
+            setFilteredAppointments(applyTypeFilter(historyAppointments, selectedType));
+        }
+    };
+
+    const AppointmentCard = ({ appointment, isHistory = false }) => {
         const isActuallyScheduled = appointment.isCourtesy 
             ? appointment.isScheduled && appointment.status === 'Confirmed'
             : appointment.isScheduled;
@@ -431,6 +543,15 @@ const AppointmentsTab = () => {
                             </Text>
                         </View>
                         
+                        {isHistory && (
+                            <View style={styles.detailRow}>
+                                <FontAwesome5 name="history" size={14} color="#666" />
+                                <Text style={styles.detailText}>
+                                    Updated: {appointment.formattedUpdatedAt}
+                                </Text>
+                            </View>
+                        )}
+                        
                         {appointment.notes && (
                             <View style={styles.detailRow}>
                                 <FontAwesome5 name="sticky-note" size={14} color="#666" />
@@ -448,15 +569,17 @@ const AppointmentsTab = () => {
                         ]}>
                             {appointment.typeInfo.label}
                         </Text>
-                        <MaterialIcons 
-                            name={showActionButtons[appointment.id] ? "expand-less" : "expand-more"} 
-                            size={20} 
-                            color="#999" 
-                        />
+                        {!isHistory && (
+                            <MaterialIcons 
+                                name={showActionButtons[appointment.id] ? "expand-less" : "expand-more"} 
+                                size={20} 
+                                color="#999" 
+                            />
+                        )}
                     </View>
                 </TouchableOpacity>
 
-                {showActionButtons[appointment.id] && (
+                {!isHistory && showActionButtons[appointment.id] && (
                     <View style={styles.actionButtonsContainer}>
                         {appointment.isCourtesy ? (
                             <>
@@ -515,6 +638,27 @@ const AppointmentsTab = () => {
 
     return (
         <View style={styles.container}>
+            {/* Tab Selector */}
+            <View style={styles.tabContainer}>
+                {TAB_OPTIONS.map((tab) => (
+                    <TouchableOpacity
+                        key={tab.id}
+                        style={[
+                            styles.tabButton,
+                            activeTab === tab.id && styles.activeTabButton
+                        ]}
+                        onPress={() => handleTabSelect(tab.id)}
+                    >
+                        <Text style={[
+                            styles.tabButtonText,
+                            activeTab === tab.id && styles.activeTabButtonText
+                        ]}>
+                            {tab.label}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
+
             <View style={styles.filterBar}>
                 <TouchableOpacity 
                     style={styles.filterButton}
@@ -543,29 +687,59 @@ const AppointmentsTab = () => {
                     <Text style={styles.loadingText}>Loading appointments...</Text>
                 </View>
             ) : (
-                <FlatList
-                    data={filteredAppointments}
-                    keyExtractor={item => item.id}
-                    renderItem={({ item }) => <AppointmentCard appointment={item} />}
-                    ListEmptyComponent={
-                        <View style={styles.emptyContainer}>
-                            <Text style={styles.emptyText}>
-                                {selectedType 
-                                    ? `No pending ${selectedType.toLowerCase()} appointments`
-                                    : "No pending appointments"}
-                            </Text>
-                        </View>
-                    }
-                    refreshControl={
-                        <RefreshControl
-                            refreshing={refreshing}
-                            onRefresh={fetchAppointments}
-                            colors={["#003366", "#0275d8"]}
-                            tintColor="#003366"
+                <ScrollView style={styles.scrollContainer}>
+                    {activeTab === 'pending' ? (
+                        <FlatList
+                            data={filteredAppointments}
+                            keyExtractor={item => item.id}
+                            renderItem={({ item }) => <AppointmentCard appointment={item} />}
+                            ListEmptyComponent={
+                                <View style={styles.emptyContainer}>
+                                    <Text style={styles.emptyText}>
+                                        {selectedType 
+                                            ? `No pending ${selectedType.toLowerCase()} appointments`
+                                            : "No pending appointments"}
+                                    </Text>
+                                </View>
+                            }
+                            refreshControl={
+                                <RefreshControl
+                                    refreshing={refreshing}
+                                    onRefresh={fetchAppointments}
+                                    colors={["#003366", "#0275d8"]}
+                                    tintColor="#003366"
+                                />
+                            }
+                            contentContainerStyle={filteredAppointments.length === 0 ? styles.emptyListContainer : styles.listContainer}
+                            scrollEnabled={false}
                         />
-                    }
-                    contentContainerStyle={filteredAppointments.length === 0 ? styles.emptyListContainer : styles.listContainer}
-                />
+                    ) : (
+                        <FlatList
+                            data={filteredAppointments}
+                            keyExtractor={item => item.id}
+                            renderItem={({ item }) => <AppointmentCard appointment={item} isHistory={true} />}
+                            ListEmptyComponent={
+                                <View style={styles.emptyContainer}>
+                                    <Text style={styles.emptyText}>
+                                        {selectedType 
+                                            ? `No historical ${selectedType.toLowerCase()} appointments`
+                                            : "No historical appointments found"}
+                                    </Text>
+                                </View>
+                            }
+                            refreshControl={
+                                <RefreshControl
+                                    refreshing={refreshing}
+                                    onRefresh={fetchAppointments}
+                                    colors={["#003366", "#0275d8"]}
+                                    tintColor="#003366"
+                                />
+                            }
+                            contentContainerStyle={filteredAppointments.length === 0 ? styles.emptyListContainer : styles.listContainer}
+                            scrollEnabled={false}
+                        />
+                    )}
+                </ScrollView>
             )}
             
             <Modal
@@ -668,6 +842,33 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#f5f5f5',
+    },
+    scrollContainer: {
+        flex: 1,
+    },
+    tabContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#e0e0e0',
+    },
+    tabButton: {
+        paddingVertical: 15,
+        paddingHorizontal: 20,
+        borderBottomWidth: 3,
+        borderBottomColor: 'transparent',
+    },
+    activeTabButton: {
+        borderBottomColor: '#003366',
+    },
+    tabButtonText: {
+        color: '#666',
+        fontWeight: '500',
+    },
+    activeTabButtonText: {
+        color: '#003366',
+        fontWeight: '600',
     },
     loadingContainer: {
         flex: 1,

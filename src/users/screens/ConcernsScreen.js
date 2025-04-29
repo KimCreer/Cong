@@ -310,7 +310,7 @@ export default function ConcernsScreen() {
         style={styles.container}
       >
         <Header 
-          title="My Reports" 
+          title="My Concerns" 
           onBackPress={() => navigation.goBack()}
           showForm={showForm}
           setShowForm={setShowForm}
