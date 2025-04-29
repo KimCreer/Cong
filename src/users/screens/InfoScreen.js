@@ -3,25 +3,43 @@ import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Linking, S
 import { Card, Divider, Button } from "react-native-paper";
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
 import { LinearGradient } from "expo-linear-gradient";
+import { useNavigation } from "@react-navigation/native";
 
 export default function InfoScreen() {
+    const navigation = useNavigation();
+    
     const openLink = (url) => {
         Linking.openURL(url);
+    };
+    
+    const goBack = () => {
+        navigation.goBack();
     };
 
     return (
         <View style={styles.container}>
             <StatusBar backgroundColor="#003366" barStyle="light-content" />
             
-            {/* Header Section with Gradient */}
+            {/* Header Section with Gradient and Back Button */}
             <LinearGradient
                 colors={['#003366', '#0275d8']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.header}
             >
-                <Icon name="account-tie" size={32} color="#ffffff" style={styles.headerIcon} />
-                <Text style={styles.headerTitle}>Congressman Jimmy Fresnedi</Text>
+                <TouchableOpacity 
+                    style={styles.backButton} 
+                    onPress={goBack}
+                >
+                    <Icon name="arrow-left" size={24} color="#ffffff" />
+                </TouchableOpacity>
+                
+                <View style={styles.headerTitleContainer}>
+                    <Icon name="account-tie" size={32} color="#ffffff" style={styles.headerIcon} />
+                    <Text style={styles.headerTitle}>Congressman Jimmy Fresnedi</Text>
+                </View>
+                
+                <View style={styles.emptySpace} />
             </LinearGradient>
 
             <ScrollView style={styles.infoList} showsVerticalScrollIndicator={false}>
@@ -251,8 +269,6 @@ export default function InfoScreen() {
                             </View>
                             <Icon name="chevron-right" size={22} color="#0275d8" />
                         </TouchableOpacity>
-                        
-              
                     </Card.Content>
                 </Card>
 
@@ -281,8 +297,6 @@ export default function InfoScreen() {
                     </Card.Content>
                 </Card>
 
-              
-
                 {/* Footer */}
                 <View style={styles.footer}>
                     <Text style={styles.footerText}>© 2025 Office of Congressman Jimmy Fresnedi</Text>
@@ -299,20 +313,30 @@ const styles = StyleSheet.create({
         backgroundColor: "#f0f2f5",
     },
     header: {
-        paddingVertical: 25,
-        paddingHorizontal: 20,
+        paddingVertical: 20,
+        paddingHorizontal: 15,
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "center",
+        justifyContent: "space-between",
         elevation: 8,
+    },
+    backButton: {
+        padding: 5,
+    },
+    headerTitleContainer: {
+        flexDirection: "row",
+        alignItems: "center",
     },
     headerIcon: {
         marginRight: 12,
     },
     headerTitle: {
-        fontSize: 20,
+        fontSize: 18,
         fontWeight: "bold",
         color: "#ffffff",
+    },
+    emptySpace: {
+        width: 24, // Same size as the back button icon
     },
     infoList: {
         padding: 16,

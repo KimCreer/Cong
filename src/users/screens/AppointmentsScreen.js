@@ -42,14 +42,21 @@ const formatDisplayDate = (date) => {
 };
 
 const formatTime = (date) => {
-  const d = parseFirestoreDate(date);
-  return d.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true
-  });
+  if (!date) return "";
+  
+  // If date is a string, parse it first
+  const d = typeof date === 'string' ? new Date(date) : date;
+  
+  // Ensure we have a valid date object
+  if (!(d instanceof Date) || isNaN(d.getTime())) return "";
+  
+  const hours = d.getHours();
+  const minutes = d.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const hour12 = hours % 12 || 12;
+  
+  return `${hour12}:${String(minutes).padStart(2, '0')} ${ampm}`;
 };
-
 const formatDate = (date, format) => {
   const d = parseFirestoreDate(date);
   const pad = (num) => num.toString().padStart(2, '0');
@@ -256,7 +263,7 @@ export default function AppointmentsScreen({ navigation }) {
 
   const fetchAppointments = useCallback(async () => {
     if (!currentUser) return;
-
+  
     try {
       setState(prev => ({ ...prev, loading: true }));
       const db = getFirestore();
@@ -279,21 +286,44 @@ export default function AppointmentsScreen({ navigation }) {
         getDocs(courtesyQ)
       ]);
       
-      const appointmentsData = snapshot.docs.map(doc => ({ 
-        id: doc.id, 
-        ...doc.data(),
-        date: parseFirestoreDate(doc.data().date),
-        createdAt: parseFirestoreDate(doc.data().createdAt),
-        updatedAt: parseFirestoreDate(doc.data().updatedAt)
-      }));
+      const appointmentsData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        let date = data.date;
+        
+        // Ensure date is properly parsed
+        if (date instanceof Timestamp) {
+          date = date.toDate();
+        } else if (typeof date === 'string') {
+          date = new Date(date);
+        }
+        
+        return { 
+          id: doc.id, 
+          ...data,
+          date: date,
+          createdAt: parseFirestoreDate(data.createdAt),
+          updatedAt: parseFirestoreDate(data.updatedAt)
+        };
+      });
       
-      const courtesyData = courtesySnapshot.docs.map(doc => ({ 
-        id: doc.id, 
-        ...doc.data(),
-        date: parseFirestoreDate(doc.data().date),
-        createdAt: parseFirestoreDate(doc.data().createdAt),
-        updatedAt: parseFirestoreDate(doc.data().updatedAt)
-      }));
+      const courtesyData = courtesySnapshot.docs.map(doc => {
+        const data = doc.data();
+        let date = data.date;
+        
+        if (date instanceof Timestamp) {
+          date = date.toDate();
+        } else if (typeof date === 'string') {
+          date = new Date(date);
+        }
+        
+        return { 
+          id: doc.id, 
+          ...data,
+          date: date,
+          createdAt: parseFirestoreDate(data.createdAt),
+          updatedAt: parseFirestoreDate(data.updatedAt)
+        };
+      });
       
       const counts = await fetchAppointmentCounts();
       
@@ -448,7 +478,6 @@ export default function AppointmentsScreen({ navigation }) {
       return false;
     }
   };
-
   const handleSubmitAppointment = async (appointmentData) => {
     try {
       setState(prev => ({ ...prev, loading: true }));
@@ -779,6 +808,12 @@ export default function AppointmentsScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <MaterialIcons name="arrow-back" size={24} color="#003580" />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>My Appointments</Text>
         <TouchableOpacity
           style={styles.newAppointmentButton}

@@ -377,5 +377,34 @@ export const styles = StyleSheet.create({
     fontWeight: 'bold',
     textTransform: 'capitalize',
   },
+
+  // Replace or add this to your styles object
+backButton: {
+  padding: 8,
+  borderRadius: 12,
+  backgroundColor: '#f0f6ff',
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 1 },
+  shadowOpacity: 0.1,
+  shadowRadius: 2,
+  elevation: 2,
+  marginRight: 10,
+},
+
+// You can also add this style for the back icon if you want to change its appearance
+backButtonIcon: {
+  color: '#003580',
+  marginRight: 2,
+},
+
+// This is optional if you want to add text next to the icon
+backButtonText: {
+  color: '#003580',
+  fontSize: 14,
+  fontWeight: '600',
+},
   
 });

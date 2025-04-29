@@ -134,28 +134,7 @@ const WeekCalendar = ({ selectedDate, onSelectDate, existingAppointments, curren
       const isSameUser = appt.userId === currentUserId;
       const isSameDate = formatDate(new Date(appt.date), 'yyyy-MM-dd') === dateStr;
       
-      // If it's a courtesy appointment, only check date
-      if (appt.isCourtesy) {
-        return isSameUser && isSameDate;
-      }
-      
-      // For regular appointments, check time if available
-      if (!appt.time) return isSameUser && isSameDate;
-      
-      // Parse the appointment time
-      const [timePart, period] = appt.time.split(' ');
-      const [hours, minutes] = timePart.split(':');
-      
-      let hour = parseInt(hours);
-      if (period === 'PM' && hour < 12) hour += 12;
-      if (period === 'AM' && hour === 12) hour = 0;
-      
-      const appointmentTime = new Date(appt.date);
-      appointmentTime.setHours(hour, parseInt(minutes), 0, 0);
-      
-      // Check if within 30 minutes of existing appointment
-      const timeDiff = Math.abs(new Date(date).getTime() - appointmentTime.getTime());
-      return isSameUser && isSameDate && timeDiff < 30 * 60 * 1000;
+      return isSameUser && isSameDate;
     });
   };
 
@@ -170,18 +149,15 @@ const WeekCalendar = ({ selectedDate, onSelectDate, existingAppointments, curren
         const isUnavailable = isWeekend(date) || isHoliday(date) || isPastDate(date);
         const hasAppointment = hasAppointmentOnDay(date);
 
-        let dayColor = '#4CAF50';
-        if (isUnavailable) dayColor = '#CCCCCC';
-        else if (hasAppointment) dayColor = '#F44336';
-
         return (
           <TouchableOpacity
             key={dateStr}
             style={[
               styles.dayContainer,
-              isSelected && { backgroundColor: dayColor },
+              isSelected && { backgroundColor: '#4CAF50' },
               isToday && !isSelected && styles.todayDay,
-              isUnavailable && styles.unavailableDay
+              isUnavailable && styles.unavailableDay,
+              hasAppointment && styles.bookedDay
             ]}
             onPress={() => !isUnavailable && !hasAppointment && onSelectDate(dateStr)}
             disabled={isUnavailable || hasAppointment}
@@ -189,27 +165,25 @@ const WeekCalendar = ({ selectedDate, onSelectDate, existingAppointments, curren
             <Text style={[
               styles.dayName, 
               isSelected && styles.selectedText,
-              isUnavailable && styles.unavailableText
+              (isUnavailable || hasAppointment) && styles.unavailableText
             ]}>
               {dayName}
             </Text>
             <Text style={[
               styles.dayNumber, 
               isSelected && styles.selectedText,
-              isUnavailable && styles.unavailableText
+              (isUnavailable || hasAppointment) && styles.unavailableText
             ]}>
               {dayNumber}
             </Text>
             {hasAppointment && !isUnavailable && (
-              <Text style={[styles.densityBadge, isSelected && styles.selectedText]}>
-                Booked
-              </Text>
+              <Text style={styles.unavailableText}>Booked</Text>
             )}
-            {isPastDate(date) && (
+            {isUnavailable && !isWeekend(date) && !isHoliday(date) && (
               <Text style={styles.unavailableText}>Past</Text>
             )}
-            {isUnavailable && !isPastDate(date) && (
-              <Text style={styles.unavailableText}>Unavble</Text>
+            {isUnavailable && (isWeekend(date) || isHoliday(date)) && (
+              <Text style={styles.unavailableText}>Unavail</Text>
             )}
           </TouchableOpacity>
         );
@@ -253,28 +227,7 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
       const isSameUser = appt.userId === currentUserId;
       const isSameDate = formatDate(new Date(appt.date), 'yyyy-MM-dd') === dateStr;
       
-      // If it's a courtesy appointment, only check date
-      if (appt.isCourtesy) {
-        return isSameUser && isSameDate;
-      }
-      
-      // For regular appointments, check time if available
-      if (!appt.time) return isSameUser && isSameDate;
-      
-      // Parse the appointment time
-      const [timePart, period] = appt.time.split(' ');
-      const [hours, minutes] = timePart.split(':');
-      
-      let hour = parseInt(hours);
-      if (period === 'PM' && hour < 12) hour += 12;
-      if (period === 'AM' && hour === 12) hour = 0;
-      
-      const appointmentTime = new Date(appt.date);
-      appointmentTime.setHours(hour, parseInt(minutes), 0, 0);
-      
-      // Check if within 30 minutes of existing appointment
-      const timeDiff = Math.abs(new Date(date).getTime() - appointmentTime.getTime());
-      return isSameUser && isSameDate && timeDiff < 30 * 60 * 1000;
+      return isSameUser && isSameDate;
     });
   };
   
@@ -289,18 +242,15 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
     const isUnavailable = !isWeekday || isHoliday(date) || isPastDate(date);
     const hasAppointment = hasAppointmentOnDay(date);
     
-    let dayColor = '#4CAF50';
-    if (isUnavailable) dayColor = '#CCCCCC';
-    else if (hasAppointment) dayColor = '#F44336';
-    
     return (
       <TouchableOpacity
         key={dateStr}
         style={[
           styles.monthDayContainer,
-          isSelected && { backgroundColor: dayColor },
+          isSelected && { backgroundColor: '#4CAF50' },
           isToday && !isSelected && styles.todayDay,
-          isUnavailable && styles.unavailableDay
+          isUnavailable && styles.unavailableDay,
+          hasAppointment && styles.bookedDay
         ]}
         onPress={() => !isUnavailable && !hasAppointment && onSelectDate(dateStr)}
         disabled={isUnavailable || hasAppointment}
@@ -308,7 +258,7 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
         <Text style={[
           styles.monthDayNumber, 
           isSelected && styles.selectedText,
-          isUnavailable && styles.unavailableText
+          (isUnavailable || hasAppointment) && styles.unavailableText
         ]}>
           {dayNumber}
         </Text>
@@ -317,8 +267,8 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
             •
           </Text>
         )}
-        {isPastDate(date) && !isWeekend(date) && (
-          <Text style={[styles.unavailableText, { fontSize: 8 }]}>Past</Text>
+        {isUnavailable && !isWeekend(date) && (
+          <Text style={[styles.unavailableText, { fontSize: 8 }]}>Unavail</Text>
         )}
       </TouchableOpacity>
     );
@@ -355,7 +305,6 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
     </View>
   );
 };
-
 const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppointments = [], currentUserId }) => {
   const scrollViewRef = useRef(null);
   const [formData, setFormData] = useState({
@@ -496,7 +445,7 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
         Alert.alert("Error", "Invalid date selected");
         return false;
       }
-      
+  
       if (isPastDate(dateObj)) {
         Alert.alert("Error", "You cannot schedule appointments for past dates");
         return false;
@@ -525,7 +474,6 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
     
     return true;
   };
-
   // Form Submission
   const handleSubmit = async () => {
     if (!validateForm()) return;
@@ -538,6 +486,25 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
     
     try {
       // Prepare appointment data
+      let appointmentDate = null;
+      
+      if (!isCourtesyAppointment() && formData.date && formData.time) {
+        // Create a new date with the correct time
+        appointmentDate = new Date(formData.date);
+        const [timePart, period] = formData.time.split(' ');
+        let [hours, minutes] = timePart.split(':');
+        
+        // Convert to 24-hour format
+        hours = parseInt(hours);
+        if (period === 'PM' && hours < 12) hours += 12;
+        if (period === 'AM' && hours === 12) hours = 0;
+        
+        appointmentDate.setHours(hours);
+        appointmentDate.setMinutes(parseInt(minutes));
+        appointmentDate.setSeconds(0);
+        appointmentDate.setMilliseconds(0);
+      }
+  
       const appointmentData = {
         type: formData.type,
         purpose: formData.purpose,
@@ -545,9 +512,8 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
         createdAt: new Date().toISOString(),
         imageUrl: formData.imageUri,
         isCourtesy: isCourtesyAppointment(),
-        // Ensure date is properly formatted
         ...(!isCourtesyAppointment() && {
-          date: new Date(formData.date), // Convert to Date object
+          date: appointmentDate, // Use the properly formatted date
           time: formData.time,
         }),
         ...(uiState.isReschedule && uiState.originalAppointmentId && { 

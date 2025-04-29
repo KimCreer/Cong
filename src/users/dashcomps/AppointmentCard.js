@@ -11,13 +11,20 @@ import {
 import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import PropTypes from 'prop-types';
-import { format, parseISO, isToday, isTomorrow, isAfter } from 'date-fns';
+import { format, isToday, isTomorrow } from 'date-fns';
 
-const AppointmentCard = ({ appointment, onViewDetails, isUpcoming }) => {
-  const parsedDate = parseISO(appointment.date);
+const AppointmentCard = ({ 
+  appointment, 
+  onViewDetails, 
+  isUpcoming = false 
+}) => {
+  // Handle both Firestore Timestamp and Date objects
+  const appointmentDate = appointment.date instanceof Date ? 
+    appointment.date : 
+    appointment.date.toDate();
   
   // Format time display
-  const displayTime = appointment.time || format(parsedDate, 'h:mm a');
+  const displayTime = format(appointmentDate, 'h:mm a');
   
   // Format service type
   const service = appointment.type || 'Appointment';
@@ -27,14 +34,14 @@ const AppointmentCard = ({ appointment, onViewDetails, isUpcoming }) => {
 
   // Add date context (today, tomorrow, or just the date)
   const getDateContext = () => {
-    if (isToday(parsedDate)) return 'Today';
-    if (isTomorrow(parsedDate)) return 'Tomorrow';
-    return format(parsedDate, 'MMM d, yyyy');
+    if (isToday(appointmentDate)) return 'Today';
+    if (isTomorrow(appointmentDate)) return 'Tomorrow';
+    return format(appointmentDate, 'MMM d, yyyy');
   };
 
   const getStatusConfig = () => {
-    switch (status) {
-      case 'Confirmed':
+    switch (status.toLowerCase()) {
+      case 'confirmed':
         return { 
           color: '#4CAF50', 
           icon: 'check-circle',
@@ -42,7 +49,7 @@ const AppointmentCard = ({ appointment, onViewDetails, isUpcoming }) => {
           textColor: '#2E7D32',
           label: 'Confirmed'
         };
-      case 'Pending':
+      case 'pending':
         return { 
           color: '#FFC107', 
           icon: 'clock',
@@ -50,7 +57,7 @@ const AppointmentCard = ({ appointment, onViewDetails, isUpcoming }) => {
           textColor: '#FF8F00',
           label: 'Pending Approval'
         };
-      case 'Cancelled':
+      case 'cancelled':
         return { 
           color: '#F44336', 
           icon: 'times-circle',
@@ -58,7 +65,7 @@ const AppointmentCard = ({ appointment, onViewDetails, isUpcoming }) => {
           textColor: '#C62828',
           label: 'Cancelled'
         };
-      case 'Completed':
+      case 'completed':
         return { 
           color: '#9C27B0', 
           icon: 'check-double',
@@ -94,9 +101,9 @@ const AppointmentCard = ({ appointment, onViewDetails, isUpcoming }) => {
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
       >
-        <Text style={styles.dayText}>{format(parsedDate, 'EEE')}</Text>
-        <Text style={styles.dateNumber}>{format(parsedDate, 'd')}</Text>
-        <Text style={styles.monthText}>{format(parsedDate, 'MMM')}</Text>
+        <Text style={styles.dayText}>{format(appointmentDate, 'EEE')}</Text>
+        <Text style={styles.dateNumber}>{format(appointmentDate, 'd')}</Text>
+        <Text style={styles.monthText}>{format(appointmentDate, 'MMM')}</Text>
         <Text style={styles.timeText}>{displayTime}</Text>
       </LinearGradient>
 
@@ -138,18 +145,16 @@ const AppointmentCard = ({ appointment, onViewDetails, isUpcoming }) => {
 AppointmentCard.propTypes = {
   appointment: PropTypes.shape({
     id: PropTypes.string,
-    date: PropTypes.string.isRequired,
+    date: PropTypes.oneOfType([
+      PropTypes.instanceOf(Date),
+      PropTypes.object // Firestore Timestamp
+    ]).isRequired,
     purpose: PropTypes.string,
     status: PropTypes.string,
-    time: PropTypes.string,
     type: PropTypes.string,
   }).isRequired,
   onViewDetails: PropTypes.func.isRequired,
   isUpcoming: PropTypes.bool,
-};
-
-AppointmentCard.defaultProps = {
-  isUpcoming: false,
 };
 
 const styles = StyleSheet.create({

@@ -309,6 +309,12 @@ const FinancialAssistanceScreen = ({ navigation }) => {
   return (
     <View style={styles.container}>
       <View style={styles.headerContainer}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <MaterialIcons name="arrow-back" size={24} color="#003580" />
+        </TouchableOpacity>
         <Text style={styles.header}>My Assistance Applications</Text>
         <TouchableOpacity 
           onPress={() => fetchApplications(false)}
@@ -357,13 +363,6 @@ const FinancialAssistanceScreen = ({ navigation }) => {
                   "Couldn't load applications. Please try again." : 
                   "Submit an application through the Assistance section"}
               </Text>
-              <TouchableOpacity 
-                style={styles.submitNewButton}
-                onPress={() => navigation.navigate('Assistance')}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.submitNewButtonText}>Apply for Assistance</Text>
-              </TouchableOpacity>
             </View>
           }
           contentContainerStyle={applications.length === 0 && styles.emptyList}
@@ -386,15 +385,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20
   },
+  backButton: {
+    padding: 8,
+    marginRight: 10
+  },
   header: {
     fontSize: 22,
     fontWeight: 'bold',
     color: '#003580',
+    flex: 1,
+    textAlign: 'center'
   },
   refreshButton: {
     padding: 8,
     borderRadius: 20,
-    backgroundColor: '#E3F2FD'
+    backgroundColor: '#E3F2FD',
+    marginLeft: 10
   },
   errorBanner: {
     backgroundColor: '#F44336',
