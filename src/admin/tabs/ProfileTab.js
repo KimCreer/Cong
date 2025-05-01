@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { getAuth } from "@react-native-firebase/auth";
 import { useNavigation } from '@react-navigation/native';
-import { getFirestore, doc, getDoc, updateDoc, setDoc } from "@react-native-firebase/firestore";
+import { getFirestore, doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs } from "@react-native-firebase/firestore";
 import * as ImagePicker from 'expo-image-picker';
 import { FontAwesome5, Feather, MaterialIcons } from "@expo/vector-icons";
 import * as Animatable from 'react-native-animatable';
@@ -24,14 +24,15 @@ import * as Crypto from 'expo-crypto';
 
 const PIN_LENGTH = 6;
 
-const ProfileTab = () => {  // Remove the navigation prop here
-    const navigation = useNavigation(); // Add this line
+const ProfileTab = () => {
+    const navigation = useNavigation();
 
     const [adminData, setAdminData] = useState({
         name: 'Loading...',
         phone: 'Loading...',
         position: 'Loading...',
-        avatarUrl: null
+        avatarUrl: null,
+        adminType: 'regular'
     });
     
     const [loading, setLoading] = useState(true);
@@ -48,6 +49,11 @@ const ProfileTab = () => {  // Remove the navigation prop here
     const [pinStep, setPinStep] = useState(1);
     const [pinError, setPinError] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [showAddAdminModal, setShowAddAdminModal] = useState(false);
+    const [newAdminPhone, setNewAdminPhone] = useState('');
+    const [newAdminName, setNewAdminName] = useState('');
+    const [newAdminPosition, setNewAdminPosition] = useState('');
+    const [addingAdmin, setAddingAdmin] = useState(false);
     const shakeAnimation = useRef(new Animated.Value(0)).current;
 
     const auth = getAuth();
@@ -79,9 +85,7 @@ const ProfileTab = () => {  // Remove the navigation prop here
                                 ]);
                             }
                             
-                            // Add this check
                             if (!navigation || !navigation.reset) {
-                                // Fallback if navigation isn't available
                                 throw new Error("Navigation not available");
                             }
                             
@@ -94,7 +98,6 @@ const ProfileTab = () => {  // Remove the navigation prop here
                             console.error("Logout error:", error);
                             
                             if (error.code === 'auth/no-current-user') {
-                                // Try again with navigation if available
                                 if (navigation?.reset) {
                                     navigation.reset({
                                         index: 0,
@@ -117,86 +120,88 @@ const ProfileTab = () => {  // Remove the navigation prop here
         );
     };
 
+    const fetchAdminProfile = async () => {
+        try {
+            setLoading(true);
+            const currentUser = auth.currentUser;
+            
+            if (!currentUser || !currentUser.uid) {
+                throw new Error("User not authenticated or missing UID");
+            }
+        
+            const adminRef = doc(db, "admins", currentUser.uid);
+            const adminSnap = await getDoc(adminRef);
+        
+            // Change this check
+            if (adminSnap && adminSnap.exists) {
+                const data = adminSnap.data();
+                
+                if (!data) {
+                    throw new Error("Document exists but has no data");
+                }
+        
+                const validatedData = {
+                    name: data.name?.trim() || 'Not set',
+                    phone: data.phone?.trim() || 'Not set',
+                    position: data.position?.trim() || 'Not set',
+                    avatarUrl: data.avatarUrl || null,
+                    adminType: data.adminType || 'regular'
+                };
+                
+                setAdminData(validatedData);
+                setFormData({
+                    name: validatedData.name,
+                    phone: validatedData.phone,
+                    position: validatedData.position
+                });
+            } else {
+                // For new admins, default to regular admin type
+                const defaultData = {
+                    name: currentUser.displayName || 'Not set',
+                    phone: currentUser.phoneNumber || 'Not set',
+                    position: 'Administrator',
+                    avatarUrl: null,
+                    createdAt: new Date(),
+                    adminType: 'regular'
+                };
+                
+                await setDoc(adminRef, defaultData);
+                setAdminData(defaultData);
+                setFormData({
+                    name: defaultData.name,
+                    phone: defaultData.phone,
+                    position: defaultData.position
+                });
+            }
+        } catch (error) {
+            console.error("Profile fetch error:", error);
+            Alert.alert(
+                "Profile Error",
+                error.message || "Failed to load admin profile"
+            );
+            setAdminData({
+                name: 'Error loading',
+                phone: 'Error loading',
+                position: 'Error loading',
+                avatarUrl: null,
+                adminType: 'regular'
+            });
+        } finally {
+            setLoading(false);
+        }
+    };
     useEffect(() => {
         const auth = getAuth();
         const unsubscribe = auth.onAuthStateChanged((user) => {
             if (user) {
-                // User is signed in, fetch profile
-                fetchAdminProfile(user.uid);
+                fetchAdminProfile();
             } else {
-                // User is signed out
                 setLoading(false);
                 navigation.navigate('Login');
             }
         });
     
-        return () => unsubscribe(); // Cleanup on unmount
-    }, []);
-    
-    useEffect(() => {
-        const fetchAdminProfile = async () => {
-            try {
-                setLoading(true);
-                const currentUser = auth.currentUser;
-                
-                if (!currentUser || !currentUser.uid) {
-                    throw new Error("User not authenticated or missing UID");
-                }
-            
-                const adminRef = doc(db, "admins", currentUser.uid);
-                const adminSnap = await getDoc(adminRef);
-            
-                if (!adminSnap || adminSnap._exists === undefined) {
-                    throw new Error("Invalid Firestore response - check connection");
-                }
-            
-                if (adminSnap._exists) {
-                    const data = adminSnap._data;
-                    
-                    if (!data) {
-                        throw new Error("Document exists but has no data");
-                    }
-            
-                    const validatedData = {
-                        name: data.name?.trim() || 'Not set',
-                        phone: data.phone?.trim() || 'Not set',
-                        position: data.position?.trim() || 'Not set',
-                        avatarUrl: data.avatarUrl || null
-                    };
-                    
-                    setAdminData(validatedData);
-                    setFormData(validatedData);
-                } else {
-                    const defaultData = {
-                        name: currentUser.displayName || 'Not set',
-                        phone: currentUser.phoneNumber || 'Not set',
-                        position: 'Administrator',
-                        avatarUrl: null,
-                        createdAt: new Date()
-                    };
-                    
-                    await setDoc(adminRef, defaultData);
-                    setAdminData(defaultData);
-                    setFormData(defaultData);
-                }
-            } catch (error) {
-                console.error("Profile fetch error:", error);
-                Alert.alert(
-                    "Profile Error",
-                    error.message || "Failed to load admin profile"
-                );
-                setAdminData({
-                    name: 'Error loading',
-                    phone: 'Error loading',
-                    position: 'Error loading',
-                    avatarUrl: null
-                });
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchAdminProfile();
+        return () => unsubscribe();
     }, []);
 
     const uploadImageToCloudinary = async (imageUri) => {
@@ -465,6 +470,75 @@ const ProfileTab = () => {  // Remove the navigation prop here
         setShowPinModal(false);
     };
 
+    const resetAddAdminModal = () => {
+        setNewAdminPhone('');
+        setNewAdminName('');
+        setNewAdminPosition('');
+        setShowAddAdminModal(false);
+    };
+
+    const validateNewAdminData = () => {
+        if (!newAdminPhone.trim()) {
+            Alert.alert("Validation Error", "Please enter phone number");
+            return false;
+        }
+        if (!newAdminName.trim()) {
+            Alert.alert("Validation Error", "Please enter admin name");
+            return false;
+        }
+        return true;
+    };
+
+    const handleAddAdmin = async () => {
+        if (!newAdminPhone.trim()) {
+            Alert.alert("Validation Error", "Please enter a valid phone number");
+            return;
+        }
+    
+        // Check if current user is superadmin
+        if (adminData.adminType !== 'superadmin') {
+            Alert.alert(
+                "Permission Denied",
+                "Only superadmins can create new admin accounts"
+            );
+            return;
+        }
+    
+        try {
+            setAddingAdmin(true);
+            
+            // Check if phone is already an admin
+            const adminsRef = collection(db, "admins");
+            const adminQ = query(adminsRef, where("phone", "==", newAdminPhone.trim()));
+            const adminSnapshot = await getDocs(adminQ);
+            
+            if (!adminSnapshot.empty) {
+                throw new Error("This phone number is already registered as an admin");
+            }
+            
+            // Generate a new document ID for the admin
+            const adminDocRef = doc(adminsRef);
+            
+            // Add to admins collection with default values
+            await setDoc(adminDocRef, {
+                phone: newAdminPhone.trim(),
+                name: "New Admin", // Default name
+                position: "Administrator", // Default position
+                createdAt: new Date(),
+                addedBy: auth.currentUser.uid,
+                adminType: 'regular' // New admins are always regular by default
+            });
+            
+            Alert.alert("Success", "New admin added successfully");
+            resetAddAdminModal();
+        } catch (error) {
+            console.error("Error adding admin:", error);
+            Alert.alert("Error", error.message || "Failed to add admin");
+        } finally {
+            setAddingAdmin(false);
+        }
+    };
+
     const PinCircle = ({ filled, active }) => (
         <View style={[
             styles.pinCircle,
@@ -565,6 +639,9 @@ const ProfileTab = () => {  // Remove the navigation prop here
                 
                 <Text style={styles.name}>{adminData.name}</Text>
                 <Text style={styles.position}>{adminData.position}</Text>
+                <Text style={styles.adminType}>
+                    {adminData.adminType === 'superadmin' ? 'Super Admin' : 'Regular Admin'}
+                </Text>
             </Animatable.View>
 
             <Animatable.View 
@@ -616,6 +693,13 @@ const ProfileTab = () => {  // Remove the navigation prop here
                         <Text style={styles.infoValue}>{adminData.position}</Text>
                     )}
                 </View>
+
+                <View style={styles.infoItem}>
+                    <Text style={styles.infoLabel}>Admin Type</Text>
+                    <Text style={styles.infoValue}>
+                        {adminData.adminType === 'superadmin' ? 'Super Admin' : 'Regular Admin'}
+                    </Text>
+                </View>
             </Animatable.View>
 
             <Animatable.View 
@@ -635,6 +719,19 @@ const ProfileTab = () => {  // Remove the navigation prop here
                     </View>
                     <Feather name="chevron-right" size={20} color="#ccc" />
                 </TouchableOpacity>
+
+                {adminData.adminType === 'superadmin' && (
+                    <TouchableOpacity 
+                        style={styles.securityItem} 
+                        onPress={() => setShowAddAdminModal(true)}
+                    >
+                        <View style={styles.securityItemLeft}>
+                            <MaterialIcons name="person-add" size={24} color="#003366" />
+                            <Text style={styles.securityItemText}>Add New Admin</Text>
+                        </View>
+                        <Feather name="chevron-right" size={20} color="#ccc" />
+                    </TouchableOpacity>
+                )}
 
                 <TouchableOpacity 
                     style={[styles.securityItem, styles.logoutItem]} 
@@ -759,6 +856,54 @@ const ProfileTab = () => {  // Remove the navigation prop here
                     </View>
                 </View>
             </Modal>
+
+            {/* Add Admin Modal */}
+            <Modal
+    visible={showAddAdminModal}
+    transparent={true}
+    animationType="slide"
+    onRequestClose={resetAddAdminModal}
+>
+    <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+            <TouchableOpacity 
+                style={styles.modalCloseButton}
+                onPress={resetAddAdminModal}
+            >
+                <Feather name="x" size={24} color="#666" />
+            </TouchableOpacity>
+
+            <Text style={styles.modalTitle}>Add New Admin</Text>
+            <Text style={styles.modalSubtitle}>
+                Enter the phone number of the user you want to make an admin
+            </Text>
+
+            <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Phone Number</Text>
+                <TextInput
+                    style={styles.modalInput}
+                    value={newAdminPhone}
+                    onChangeText={setNewAdminPhone}
+                    placeholder="e.g. +1234567890"
+                    keyboardType="phone-pad"
+                    autoFocus={true}
+                />
+            </View>
+
+            <TouchableOpacity
+                style={[styles.modalActionButton, !newAdminPhone && styles.disabledButton]}
+                onPress={handleAddAdmin}
+                disabled={addingAdmin || !newAdminPhone}
+            >
+                {addingAdmin ? (
+                    <ActivityIndicator color="white" />
+                ) : (
+                    <Text style={styles.modalActionButtonText}>Add Admin</Text>
+                )}
+            </TouchableOpacity>
+        </View>
+    </View>
+</Modal>
         </ScrollView>
     );
 };
@@ -814,6 +959,11 @@ const styles = StyleSheet.create({
     position: {
         fontSize: 16,
         color: "#666",
+    },
+    adminType: {
+        fontSize: 16,
+        color: "#4CAF50",
+        fontWeight: '600'
     },
     section: {
         backgroundColor: "white",
@@ -1025,6 +1175,27 @@ const styles = StyleSheet.create({
         color: 'white',
         fontWeight: '600',
         fontSize: 16,
+    },
+    inputContainer: {
+        width: '100%',
+        marginBottom: 15,
+    },
+    inputLabel: {
+        fontSize: 14,
+        color: '#666',
+        marginBottom: 8,
+    },
+    modalInput: {
+        backgroundColor: '#F5F7FA',
+        borderWidth: 1,
+        borderColor: '#E1E5EB',
+        borderRadius: 8,
+        padding: 12,
+        fontSize: 16,
+        width: '100%',
+    },
+    disabledButton: {
+        backgroundColor: '#cccccc',
     },
 });
 

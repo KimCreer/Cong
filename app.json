@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "MUNTINLUPA DISTRICT OFFICE",
+    "name": "JRF Cares",
     "slug": "cong-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -71,7 +71,7 @@
       "versionCode": 1,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/app-icon.png",
+        "foregroundImage": "./assets/jrf.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
@@ -109,7 +109,7 @@
     },
     
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/jrf.png"
     },
     
     "extra": {

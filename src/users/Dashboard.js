@@ -75,7 +75,7 @@ const translations = {
     selectLanguage: "Select Language",
     close: "Close",
     services: {
-      Laws: "Laws",
+      Laws: "Acts",
       Projects: "Projects",
       Concerns: "Concerns",
       Sched: "Bookings",

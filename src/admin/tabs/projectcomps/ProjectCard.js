@@ -5,7 +5,8 @@ import {
     Text, 
     TouchableOpacity,
     StyleSheet,
-    Image 
+    Image,
+    Alert   
 } from 'react-native';
 import { AntDesign } from "@expo/vector-icons";
 import { deleteProject } from './projectsUtils';
