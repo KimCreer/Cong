@@ -275,23 +275,31 @@ const PostScreen = ({ navigation }) => {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.container}>
           <Surface style={styles.header} elevation={2}>
-            <Text style={styles.headerTitle}>Community Feed</Text>
-            <View style={styles.headerButtons}>
+            <View style={styles.headerContent}>
               <TouchableOpacity 
-                onPress={requestNotificationPermissions} 
-                style={styles.iconButton}
+                onPress={() => navigation.goBack()}
+                style={styles.backButton}
               >
-                <Icon 
-                  name={notificationPermission === 'granted' ? "bell" : "bell-outline"} 
-                  size={24} 
-                  color={notificationPermission === 'granted' ? '#4a6da7' : '#212121'} 
-                />
-                {notificationPermission === 'denied' && (
-                  <View style={styles.notificationBadge}>
-                    <Icon name="close" size={10} color="white" />
-                  </View>
-                )}
+                <Icon name="arrow-left" size={24} color="#212121" />
               </TouchableOpacity>
+              <Text style={styles.headerTitle}>Community Feed</Text>
+              <View style={styles.headerButtons}>
+                <TouchableOpacity 
+                  onPress={requestNotificationPermissions} 
+                  style={styles.iconButton}
+                >
+                  <Icon 
+                    name={notificationPermission === 'granted' ? "bell" : "bell-outline"} 
+                    size={24} 
+                    color={notificationPermission === 'granted' ? '#4a6da7' : '#212121'} 
+                  />
+                  {notificationPermission === 'denied' && (
+                    <View style={styles.notificationBadge}>
+                      <Icon name="close" size={10} color="white" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </Surface>
           

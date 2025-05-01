@@ -178,7 +178,7 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
   return (
     <View style={styles.container}>
       <View style={styles.headerContainer}>
-        <Text style={styles.sectionTitle}>Medical Financial Assistance</Text>
+        <Text style={styles.sectionTitle}> Financial Assistance</Text>
         <TouchableOpacity 
           onPress={onRefresh}
           style={styles.refreshButton}

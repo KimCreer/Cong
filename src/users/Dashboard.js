@@ -1,4 +1,3 @@
-
 // dashboard.js
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
@@ -13,7 +12,9 @@ import {
   RefreshControl,
   Dimensions,
   Linking,
-  Alert
+  Alert,
+  Modal,
+  Pressable
 } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createStackNavigator } from "@react-navigation/stack";
@@ -58,20 +59,79 @@ import HelpScreen from "./screens/HelpScreen";
 import AssistanceScreen from "./screens/AssistanceScreen";
 import PostScreen from "./screens/PostScreen";
 
+// Language translations with consistent styling
+const translations = {
+  en: {
+    welcome: "Welcome Back!",
+    noAppointments: "No upcoming appointments",
+    scheduleNow: "Schedule Now",
+    latestPosts: "Latest Posts",
+    noPosts: "No posts available",
+    viewAllPosts: "View All Posts",
+    upcomingAppointments: "Upcoming Appointments",
+    viewAll: "View All",
+    districtOffice: "District Office Location",
+    help: "HELP",
+    selectLanguage: "Select Language",
+    close: "Close",
+    services: {
+      Laws: "Laws",
+      Projects: "Projects",
+      Concerns: "Concerns",
+      Sched: "Bookings",
+      Newsfeed: "Newsfeed",
+      Info: "Information"
+    }
+  },
+  tl: {
+    welcome: "Maligayang Pagbabalik!",
+    noAppointments: "Walang nakatakdang appointment",
+    scheduleNow: "Mag-schedule Ngayon",
+    latestPosts: "Pinakabagong Mga Post",
+    noPosts: "Walang available na post",
+    viewAllPosts: "Tingnan Lahat ng Post",
+    upcomingAppointments: "Mga Darating na Appointment",
+    viewAll: "Tingnan Lahat",
+    districtOffice: "Lokasyon ng District Office",
+    help: "TULONG",
+    selectLanguage: "Pumili ng Wika",
+    close: "Isara",
+    services: {
+      Laws: "Mga Batas",
+      Projects: "Mga Proyekto",
+      Concerns: "Mga Alalahanin",
+      Sched: "Iskedyul",
+      Newsfeed: "Balita",
+      Info: "Impormasyon"
+    }
+  }
+};
+
 // Constants
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 const PLACEHOLDER_IMAGE = "https://via.placeholder.com/50";
 
-// Service menu items
-const SERVICE_ITEMS = [
-  { name: "Laws", icon: "balance-scale", color: "#0275d8", screen: "Laws" },
-  { name: "Projects", icon: "tasks", color: "#0275d8", screen: "Projects" },
-  { name: "Concerns", icon: "comments", color: "#0275d8", screen: "Concerns" },
-  { name: "Sched", icon: "calendar-check", color: "#0275d8", screen: "Appointments" },
-  { name: "Newsfeed", icon: "newspaper", color: "#0275d8", screen: "Post" },
-  { name: "Info", icon: "info-circle", color: "#0275d8", screen: "Info" },
+// Responsive font sizes
+const fontSize = {
+  xxxl: width < 400 ? 26 : 28,
+  xxl: width < 400 ? 22 : 24,
+  xl: width < 400 ? 18 : 20,
+  lg: width < 400 ? 16 : 18,
+  md: width < 400 ? 14 : 16,
+  sm: width < 400 ? 12 : 14,
+  xs: width < 400 ? 10 : 12,
+};
+
+// Service menu items - will be populated based on language
+const getServiceItems = (language) => [
+  { name: translations[language].services.Laws, icon: "balance-scale", color: "#0275d8", screen: "Laws" },
+  { name: translations[language].services.Projects, icon: "tasks", color: "#0275d8", screen: "Projects" },
+  { name: translations[language].services.Concerns, icon: "comments", color: "#0275d8", screen: "Concerns" },
+  { name: translations[language].services.Sched, icon: "calendar-check", color: "#0275d8", screen: "Appointments" },
+  { name: translations[language].services.Newsfeed, icon: "newspaper", color: "#0275d8", screen: "Post" },
+  { name: translations[language].services.Info, icon: "info-circle", color: "#0275d8", screen: "Info" },
 ];
 
 const GradientTabBar = ({ children }) => (
@@ -87,6 +147,8 @@ const GradientTabBar = ({ children }) => (
 
 function HomeScreen() {
   const navigation = useNavigation();
+  const [language, setLanguage] = useState('en');
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [userData, setUserData] = useState({
     firstName: "User Name",
     profileImage: PLACEHOLDER_IMAGE,
@@ -96,6 +158,10 @@ function HomeScreen() {
   const [upcomingAppointments, setUpcomingAppointments] = useState([]);
   const [newsItems, setNewsItems] = useState([]);
   const [error, setError] = useState(null);
+
+  const t = translations[language];
+  const SERVICE_ITEMS = getServiceItems(language);
+
 
   const fetchUserData = useCallback(async () => {
     try {
@@ -121,37 +187,31 @@ function HomeScreen() {
         });
       }
   
-      // Fetch appointments - get upcoming appointments (today and future)
+      // Fetch appointments
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      
-      // Create a timestamp for the query
       const startOfTodayTimestamp = Timestamp.fromDate(startOfToday);
       
       const appointmentsQuery = query(
         collection(db, "appointments"),
         where("userId", "==", currentUser.uid),
-        where("date", ">=", startOfTodayTimestamp), // Use Firestore Timestamp
-        where("status", "in", ["Pending", "Confirmed"]), // Only pending or confirmed
-        orderBy("date", "asc"), // Sort by date ascending
-        limit(5) // Limit to 5 appointments
+        where("date", ">=", startOfTodayTimestamp),
+        where("status", "in", ["Pending", "Confirmed"]),
+        orderBy("date", "asc"),
+        limit(5)
       );
       
       const appointmentsSnapshot = await getDocs(appointmentsQuery);
       let appointments = appointmentsSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
-        date: doc.data().date.toDate(), // Convert Firestore timestamp to Date
+        date: doc.data().date.toDate(),
         status: doc.data().status?.trim() || 'Pending'
       }));
   
-      // Sort appointments: confirmed first, then pending, then by date
       appointments.sort((a, b) => {
-        // First sort by status (Confirmed comes before Pending)
         if (a.status === 'Confirmed' && b.status !== 'Confirmed') return -1;
         if (a.status !== 'Confirmed' && b.status === 'Confirmed') return 1;
-        
-        // Then sort by date (earlier dates come first)
         return a.date - b.date;
       });
   
@@ -216,6 +276,11 @@ function HomeScreen() {
     }
   }, []);
 
+  const changeLanguage = (lang) => {
+    setLanguage(lang);
+    setShowLanguageModal(false);
+  };
+
   const renderHeader = useMemo(() => (
     <LinearGradient
       colors={['#003366', '#0275d8']}
@@ -227,28 +292,39 @@ function HomeScreen() {
         {loading ? (
           <ActivityIndicator size="small" color="#FFD700" />
         ) : (
-          <Image
-            source={{ uri: userData.profileImage }}
-            style={styles.profileImage}
-            onError={handleImageError}
-          />
+          <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
+            <Image
+              source={{ uri: userData.profileImage }}
+              style={styles.profileImage}
+              onError={handleImageError}
+            />
+          </TouchableOpacity>
         )}
         <View style={styles.headerTextContainer}>
-          <Text style={styles.headerSubtitle}>Welcome Back!</Text>
+          <Text style={styles.headerSubtitle}>{t.welcome}</Text>
           <Text style={styles.headerTitle} numberOfLines={1}>
             {userData.firstName}
           </Text>
         </View>
-        <TouchableOpacity 
-          style={styles.helpButton}
-          onPress={() => navigation.navigate('Help')}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.helpText}>HELP</Text>
-        </TouchableOpacity>
+        <View style={styles.headerButtonsContainer}>
+          <TouchableOpacity 
+            style={styles.languageButton}
+            onPress={() => setShowLanguageModal(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.languageText}>{language === 'en' ? 'EN' : 'TL'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.helpButton}
+            onPress={() => navigation.navigate('Help')}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.helpText}>{t.help}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </LinearGradient>
-  ), [userData, loading, handleImageError, navigation]);
+  ), [userData, loading, handleImageError, navigation, t, language]);
 
   const renderServiceGrid = useMemo(() => (
     <View style={styles.serviceGrid}>
@@ -260,7 +336,7 @@ function HomeScreen() {
         />
       ))}
     </View>
-  ), [navigateToScreen]);
+  ), [navigateToScreen, SERVICE_ITEMS]);
 
   const renderNewsSection = useMemo(() => {
     if (error) {
@@ -280,7 +356,7 @@ function HomeScreen() {
 
     return (
       <>
-        <Text style={styles.sectionTitle}>Latest Posts</Text>
+        <Text style={styles.sectionTitle}>{t.latestPosts}</Text>
         {newsItems.length > 0 ? (
           <ScrollView 
             horizontal
@@ -304,7 +380,7 @@ function HomeScreen() {
         ) : (
           <View style={styles.noUpdatesContainer}>
             <FontAwesome5 name="newspaper" size={30} color="#cccccc" />
-            <Text style={styles.noUpdatesText}>No posts available</Text>
+            <Text style={styles.noUpdatesText}>{t.noPosts}</Text>
           </View>
         )}
         
@@ -313,24 +389,24 @@ function HomeScreen() {
           onPress={() => navigation.navigate("Post")}
           activeOpacity={0.7}
         >
-          <Text style={styles.viewAllUpdatesText}>View All Posts</Text>
+          <Text style={styles.viewAllUpdatesText}>{t.viewAllPosts}</Text>
           <FontAwesome5 name="arrow-right" size={14} color="#003580" />
         </TouchableOpacity>
       </>
     );
-  }, [newsItems, error, navigation, markPostAsRead, fetchUserData]);
+  }, [newsItems, error, navigation, markPostAsRead, fetchUserData, t]);
 
   const renderAppointmentsSection = useMemo(() => {
     if (upcomingAppointments.length === 0) {
       return (
         <View style={styles.noAppointmentsContainer}>
           <FontAwesome5 name="calendar" size={30} color="#cccccc" />
-          <Text style={styles.noAppointmentsText}>No upcoming appointments</Text>
+          <Text style={styles.noAppointmentsText}>{t.noAppointments}</Text>
           <TouchableOpacity
             style={styles.scheduleButton}
             onPress={() => navigation.navigate('Appointments')}
           >
-            <Text style={styles.scheduleButtonText}>Schedule Now</Text>
+            <Text style={styles.scheduleButtonText}>{t.scheduleNow}</Text>
           </TouchableOpacity>
         </View>
       );
@@ -339,9 +415,9 @@ function HomeScreen() {
     return (
       <View style={styles.upcomingAppointmentsContainer}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.upcomingAppointmentsTitle}>Upcoming Appointments</Text>
+          <Text style={styles.upcomingAppointmentsTitle}>{t.upcomingAppointments}</Text>
           <TouchableOpacity onPress={() => navigation.navigate('Appointments')}>
-            <Text style={styles.viewAllText}>View All</Text>
+            <Text style={styles.viewAllText}>{t.viewAll}</Text>
           </TouchableOpacity>
         </View>
         
@@ -356,7 +432,40 @@ function HomeScreen() {
         ))}
       </View>
     );
-  }, [upcomingAppointments, navigation]);
+  }, [upcomingAppointments, navigation, t]);
+
+  const renderLanguageModal = () => (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={showLanguageModal}
+      onRequestClose={() => setShowLanguageModal(false)}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Select Language</Text>
+          <Pressable
+            style={[styles.languageOption, language === 'en' && styles.selectedLanguage]}
+            onPress={() => changeLanguage('en')}
+          >
+            <Text style={styles.languageOptionText}>English</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.languageOption, language === 'tl' && styles.selectedLanguage]}
+            onPress={() => changeLanguage('tl')}
+          >
+            <Text style={styles.languageOptionText}>Tagalog</Text>
+          </Pressable>
+          <Pressable
+            style={styles.closeButton}
+            onPress={() => setShowLanguageModal(false)}
+          >
+            <Text style={styles.closeButtonText}>Close</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
 
   return (
     <SafeAreaView style={styles.safeContainer}>
@@ -374,12 +483,13 @@ function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         {renderServiceGrid}
-        <MedicalFinancialSection navigation={navigation} hospitals={HOSPITALS} />
+        <MedicalFinancialSection navigation={navigation} hospitals={HOSPITALS} language={language} />
         {renderAppointmentsSection}
-        <Text style={styles.sectionTitle}>District Office Location</Text>
+        <Text style={styles.sectionTitle}>{t.districtOffice}</Text>
         <AddressCard address={OFFICE_ADDRESS} />
         {renderNewsSection}
       </ScrollView>
+      {renderLanguageModal()}
     </SafeAreaView>
   );
 }
@@ -476,6 +586,10 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 15,
   },
+  headerButtonsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   profileImage: {
     width: 55,
     height: 55,
@@ -499,10 +613,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 12,
     elevation: 3,
+    marginLeft: 10,
+  },
+  languageButton: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    elevation: 3,
   },
   helpText: {
     fontWeight: "bold",
     color: "#003580",
+    fontSize: 14,
+  },
+  languageText: {
+    fontWeight: "bold",
+    color: "white",
     fontSize: 14,
   },
   scrollContainer: {
@@ -629,6 +756,46 @@ const styles = StyleSheet.create({
   },
   retryText: {
     color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 20,
+    width: '80%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  languageOption: {
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  selectedLanguage: {
+    backgroundColor: '#e6f2ff',
+  },
+  languageOptionText: {
+    fontSize: 16,
+  },
+  closeButton: {
+    marginTop: 15,
+    padding: 10,
+    backgroundColor: '#0275d8',
+    borderRadius: 5,
+    alignSelf: 'center',
+  },
+  closeButtonText: {
+    color: 'white',
     fontWeight: 'bold',
   },
 });

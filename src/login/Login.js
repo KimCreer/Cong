@@ -1019,18 +1019,6 @@ const skipLogin = () => {
                         : renderPhoneInput()
             }
 
-            {!showPinScreen && !showSetPinScreen && !confirm && (
-                <Button 
-                    mode="text" 
-                    onPress={skipLogin} 
-                    style={styles.skipButton} 
-                    labelStyle={styles.skipButtonText}
-                    disabled={loading}
-                >
-                    Skip for Now
-                </Button>
-            )}
-
             <Text style={styles.footerText}>
                 Need help? <Text style={styles.link}>Contact Support</Text>
             </Text>

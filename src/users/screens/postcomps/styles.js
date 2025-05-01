@@ -355,6 +355,25 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '600',
   },
+
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingHorizontal: 16,
+  },
+  backButton: {
+    padding: -100,
+    marginRight: 8,
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginLeft: 5, // To compensate for the back button
+  },
 });
 
 export default styles;
