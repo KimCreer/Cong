@@ -18,7 +18,7 @@ import { initializeApp } from '@react-native-firebase/app';
 import { getFirestore, doc, getDoc } from '@react-native-firebase/firestore';
 
 const ApplicationDetails = ({ route, navigation }) => {
-  const { application, onGoBack } = route.params;
+  const { application } = route.params; // Removed onGoBack from params
   const [hospitalDetails, setHospitalDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [requirements, setRequirements] = useState([]);
@@ -217,10 +217,7 @@ const ApplicationDetails = ({ route, navigation }) => {
         {/* Header Section */}
         <View style={styles.header}>
           <TouchableOpacity 
-            onPress={() => {
-              if (onGoBack) onGoBack();
-              navigation.goBack();
-            }}
+            onPress={() => navigation.goBack()} // Simplified back navigation
             style={styles.backButton}
             activeOpacity={0.7}
           >
@@ -274,8 +271,6 @@ const ApplicationDetails = ({ route, navigation }) => {
           {renderDetailRow('phone', 'Phone Number', application.contactNumber)}
           {renderDetailRow('email', 'Email', application.email)}
           {renderDetailRow('map-marker', 'Address', application.address, true)}
-          
-          
         </View>
 
         {/* Requirements Section */}
@@ -445,21 +440,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 100,
     marginTop: 10
-  },
-  callButton: {
-    flexDirection: 'row',
-    backgroundColor: '#003580',
-    padding: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 15
-  },
-  callButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-    marginLeft: 8,
-    fontSize: 16
   }
 });
 

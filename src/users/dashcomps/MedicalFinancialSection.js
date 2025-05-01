@@ -31,15 +31,13 @@ const PROGRAM_DESCRIPTIONS = {
 };
 
 const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
-  const [activeFilter, setActiveFilter] = useState('all');
+  const [activeFilter, setActiveFilter] = useState('guarantee'); // Default to guarantee filter
   const [refreshing, setRefreshing] = useState(false);
   
   const filteredHospitals = useMemo(() => {
     if (!hospitals || hospitals.length === 0) return [];
     
-    return activeFilter === 'all' 
-      ? hospitals 
-      : hospitals.filter(h => h.type === activeFilter);
+    return hospitals.filter(h => h.type === activeFilter);
   }, [hospitals, activeFilter]);
 
   const navigateToHospital = useCallback((hospital) => {
@@ -190,9 +188,7 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
       <View style={styles.card}>
         {/* Program Description */}
         <Text style={styles.description}>
-          {activeFilter === 'all' 
-            ? 'Access various medical assistance programs offered by the city and partner hospitals.'
-            : getProgramDescription(activeFilter)}
+          {getProgramDescription(activeFilter)}
         </Text>
         
         {/* Filter Controls */}
