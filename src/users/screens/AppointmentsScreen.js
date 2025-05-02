@@ -584,11 +584,15 @@ export default function AppointmentsScreen({ navigation }) {
       }
   
       const db = getFirestore();
-      await updateDoc(doc(db, "appointments", appointment.id), {
+      const updateData = {
         date: Timestamp.fromDate(appointmentDate),
         time: newTime,
-        status: "Confirmed",
-      });
+        // Only update status if it's not Pending
+        ...(appointment.status !== "Pending" && { status: appointment.status }),
+        updatedAt: Timestamp.now()
+      };
+  
+      await updateDoc(doc(db, "appointments", appointment.id), updateData);
   
       await sendAppointmentNotification(
         "Appointment Rescheduled",

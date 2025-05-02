@@ -7,10 +7,8 @@ import { getAuth, signInWithPhoneNumber, signOut } from "@react-native-firebase/
 import { getFirestore, collection, query, where, getDocs, doc, getDoc, setDoc } from "@react-native-firebase/firestore";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import * as LocalAuthentication from 'expo-local-authentication';
 import * as DeviceInfo from 'expo-device';
 import * as Crypto from 'expo-crypto';
-
 
 import styles from './styles/LoginStyles';
 
@@ -20,13 +18,14 @@ const { width, height } = Dimensions.get("window");
 const MAX_PIN_ATTEMPTS = 5;
 const PIN_LENGTH = 4;
 const LOCKOUT_DURATION = 5 * 60 * 1000; // 5 minutes
+const MAX_OTP_ATTEMPTS = 5;
+const OTP_LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
 
 // Security helper functions
 const generateDeviceSalt = async () => {
     try {
       let salt = await SecureStore.getItemAsync('deviceSalt');
       if (!salt) {
-        // Use the correct method from expo-crypto
         const randomBytes = await Crypto.getRandomBytesAsync(16);
         salt = Array.from(new Uint8Array(randomBytes))
           .map(b => b.toString(16).padStart(2, '0'))
@@ -38,12 +37,11 @@ const generateDeviceSalt = async () => {
       console.error("Salt generation error:", error);
       throw error;
     }
-  };
+};
 
-  const hashPin = async (pin, salt, userId) => {
+const hashPin = async (pin, salt, userId) => {
     try {
       const message = pin + salt + userId;
-      // Use digestStringAsync instead of digest
       const digest = await Crypto.digestStringAsync(
         Crypto.CryptoDigestAlgorithm.SHA256,
         message
@@ -53,8 +51,7 @@ const generateDeviceSalt = async () => {
       console.error("Hashing error:", error);
       throw error;
     }
-  };
-  
+};
 
 const generateDeviceFingerprint = async () => {
   try {
@@ -179,7 +176,8 @@ export default function Login() {
     const [confirmPin, setConfirmPin] = useState("");
     const [pinStep, setPinStep] = useState(1);
     const [lockoutUntil, setLockoutUntil] = useState(null);
-    const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
+    const [otpAttempts, setOtpAttempts] = useState(0);
+    const [otpLockoutUntil, setOtpLockoutUntil] = useState(null);
     const shakeAnimation = useRef(new Animated.Value(0)).current;
     const navigation = useNavigation();
     
@@ -187,33 +185,30 @@ export default function Login() {
     const auth = getAuth();
     const firestore = getFirestore();
 
-    // Check biometric availability
-    useEffect(() => {
-        const checkBiometrics = async () => {
-            try {
-                const hasHardware = await LocalAuthentication.hasHardwareAsync();
-                const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-                setIsBiometricAvailable(hasHardware && isEnrolled);
-            } catch (error) {
-                console.error("Biometric check error:", error);
-                logSecurityEvent("BIOMETRIC_CHECK_ERROR", error.message);
-            }
-        };
-        checkBiometrics();
-    }, []);
-
     // Check for lockout status
     useEffect(() => {
         const checkLockout = async () => {
             try {
-                const lockoutTime = await SecureStore.getItemAsync('lockoutUntil');
+                const [pinLockoutTime, otpLockoutTime] = await Promise.all([
+                    SecureStore.getItemAsync('lockoutUntil'),
+                    SecureStore.getItemAsync('otpLockoutUntil')
+                ]);
                 
-                if (lockoutTime) {
-                    const lockoutDate = new Date(parseInt(lockoutTime));
+                if (pinLockoutTime) {
+                    const lockoutDate = new Date(parseInt(pinLockoutTime));
                     if (lockoutDate > new Date()) {
                         setLockoutUntil(lockoutDate);
                     } else {
                         await SecureStore.deleteItemAsync('lockoutUntil');
+                    }
+                }
+
+                if (otpLockoutTime) {
+                    const lockoutDate = new Date(parseInt(otpLockoutTime));
+                    if (lockoutDate > new Date()) {
+                        setOtpLockoutUntil(lockoutDate);
+                    } else {
+                        await SecureStore.deleteItemAsync('otpLockoutUntil');
                     }
                 }
             } catch (error) {
@@ -378,8 +373,6 @@ export default function Login() {
         }
     };
 
-    // Biometric authentication handler
-
     // Clear user session data
     const clearUserSession = async () => {
         try {
@@ -389,11 +382,9 @@ export default function Login() {
                 SecureStore.deleteItemAsync('userPhone'),
                 SecureStore.deleteItemAsync('lastLogin'),
                 SecureStore.deleteItemAsync('isAdmin'),
-                SecureStore.deleteItemAsync('lockoutUntil')
+                SecureStore.deleteItemAsync('lockoutUntil'),
+                SecureStore.deleteItemAsync('otpLockoutUntil')
             ]);
-            
-            // Note: We don't delete the PIN hash here because it's tied to the user
-            // and might be needed if they log back in on the same device
         } catch (error) {
             console.log("Sign-out error:", error);
             logSecurityEvent("LOGOUT_ERROR", error.message);
@@ -518,13 +509,12 @@ export default function Login() {
                 return;
             }
     
-            // Check user role in Firestore - this replaces the ADMIN_PHONES check
+            // Check user role in Firestore
             const [adminSnapshot, userSnapshot] = await Promise.all([
                 getDocs(query(collection(firestore, "admins"), where("phone", "==", formattedPhone))),
                 getDocs(query(collection(firestore, "users"), where("phoneNumber", "==", formattedPhone)))
             ]);
             
-    
             if (!adminSnapshot.empty) {
                 const adminDoc = adminSnapshot.docs[0];
                 const adminData = adminDoc.data();
@@ -600,13 +590,23 @@ export default function Login() {
         }
     };
 
-    // Confirm OTP code
+    // Confirm OTP code with attempt limiting
     const confirmCode = async () => {
         if (!code.trim()) {
             Alert.alert("OTP Required", "Please enter the verification code sent to your phone");
             return;
         }
     
+        // Check for OTP lockout
+        if (otpLockoutUntil && otpLockoutUntil > new Date()) {
+            const minutesLeft = Math.ceil((otpLockoutUntil - new Date()) / (60 * 1000));
+            Alert.alert(
+                "Too Many Attempts",
+                `You've exceeded the maximum OTP attempts. Please try again in ${minutesLeft} minute(s).`
+            );
+            return;
+        }
+
         try {
             setLoading(true);
             Keyboard.dismiss();
@@ -615,7 +615,11 @@ export default function Login() {
             const userCredential = await confirm.confirm(code);
             const user = userCredential.user;
     
-            // 2. Store essential user identifiers
+            // 2. Reset OTP attempts on successful verification
+            setOtpAttempts(0);
+            await SecureStore.deleteItemAsync('otpLockoutUntil');
+    
+            // 3. Store essential user identifiers
             const formattedPhone = formatPhoneNumber(phoneNumber.replace(/\D/g, ''));
             await Promise.all([
                 SecureStore.setItemAsync('userPhone', formattedPhone),
@@ -623,7 +627,7 @@ export default function Login() {
                 SecureStore.setItemAsync('lastLogin', new Date().toISOString())
             ]);
     
-            // 3. Handle PIN reset flow
+            // 4. Handle PIN reset flow
             if (isResettingPin) {
                 setShowSetPinScreen(true);
                 setConfirm(null);
@@ -632,14 +636,14 @@ export default function Login() {
                 return;
             }
     
-            // 4. Check if user needs to set a PIN
+            // 5. Check if user needs to set a PIN
             const pinHash = await SecureStore.getItemAsync(`userPinHash_${user.uid}`);
             if (!pinHash) {
                 setShowSetPinScreen(true);
                 return;
             }
     
-            // 5. Retrieve and verify user document
+            // 6. Retrieve and verify user document
             const userDoc = await getDoc(doc(firestore, "users", user.uid));
             
             if (!userDoc.exists) {
@@ -652,7 +656,7 @@ export default function Login() {
     
             const userData = userDoc.data();
             
-            // 6. Navigate to appropriate dashboard with reset stack
+            // 7. Navigate to appropriate dashboard with reset stack
             navigation.reset({
                 index: 0,
                 routes: [{
@@ -665,17 +669,33 @@ export default function Login() {
             console.error("OTP Confirmation Error:", error);
             logSecurityEvent("OTP_ERROR", error.message);
             
-            let errorMessage = "Invalid verification code";
-            if (error.code === 'auth/invalid-verification-code') {
-                errorMessage = "The code you entered is incorrect or expired";
-            } else if (error.code === 'auth/code-expired') {
-                errorMessage = "This code has expired. Please request a new one";
+            // Handle failed OTP attempts
+            const attemptsLeft = MAX_OTP_ATTEMPTS - otpAttempts - 1;
+            setOtpAttempts(prev => prev + 1);
+
+            if (attemptsLeft <= 0) {
+                const lockoutTime = new Date(Date.now() + OTP_LOCKOUT_DURATION);
+                setOtpLockoutUntil(lockoutTime);
+                await SecureStore.setItemAsync('otpLockoutUntil', lockoutTime.getTime().toString());
+                
+                logSecurityEvent("OTP_LOCKOUT");
+                
+                Alert.alert(
+                    "Too Many Attempts",
+                    `You've exceeded the maximum OTP attempts. Please try again in ${OTP_LOCKOUT_DURATION / 60000} minutes.`
+                );
+            } else {
+                let errorMessage = "Invalid verification code";
+                if (error.code === 'auth/invalid-verification-code') {
+                    errorMessage = `The code you entered is incorrect (${attemptsLeft} attempt${attemptsLeft !== 1 ? 's' : ''} remaining)`;
+                } else if (error.code === 'auth/code-expired') {
+                    errorMessage = "This code has expired. Please request a new one";
+                }
+
+                Alert.alert("Verification Failed", errorMessage, [
+                    { text: "OK", onPress: () => setCode("") }
+                ]);
             }
-    
-            Alert.alert("Verification Failed", errorMessage, [
-                { text: "OK", onPress: () => setCode("") }
-            ]);
-    
         } finally {
             setLoading(false);
         }
@@ -798,14 +818,6 @@ export default function Login() {
         );
     };
 
-  // Update the skipLogin function to reset navigation stack
-const skipLogin = () => {
-    navigation.reset({
-        index: 0,
-        routes: [{ name: "Dashboard" }]
-    });
-};
-
     // Render phone input screen
     const renderPhoneInput = () => (
         <>
@@ -849,6 +861,16 @@ const skipLogin = () => {
                 Code sent to {formatPhoneNumberForDisplay(formatPhoneNumber(phoneNumber.replace(/\D/g, '')))}
             </Text>
             
+            {otpLockoutUntil && otpLockoutUntil > new Date() ? (
+                <Text style={styles.lockoutText}>
+                    Too many attempts. Try again at {otpLockoutUntil.toLocaleTimeString()}
+                </Text>
+            ) : (
+                <Text style={styles.attemptsText}>
+                    Attempts remaining: {MAX_OTP_ATTEMPTS - otpAttempts}
+                </Text>
+            )}
+
             <TextInput
                 label="Enter OTP Code"
                 mode="outlined"
@@ -865,15 +887,15 @@ const skipLogin = () => {
                 style={styles.input}
                 outlineColor="#003580"
                 activeOutlineColor="#002B5C"
-                disabled={loading}
+                disabled={loading || (otpLockoutUntil && otpLockoutUntil > new Date())}
             />
-    
+
             <Button
                 mode="contained"
                 onPress={confirmCode}
                 style={[styles.button, loading && styles.buttonDisabled]}
                 labelStyle={styles.buttonText}
-                disabled={loading}
+                disabled={loading || (otpLockoutUntil && otpLockoutUntil > new Date())}
             >
                 {loading ? <ActivityIndicator color="white" size="small" /> : "Verify OTP"}
             </Button>
@@ -912,7 +934,6 @@ const skipLogin = () => {
               />
             </Animated.View>
     
-    
             <View style={styles.pinActionsContainer}>
                 <Button 
                     mode="text" 
@@ -940,7 +961,7 @@ const skipLogin = () => {
             <NumberPad 
               onPress={handlePinInput} 
               onBackspace={handlePinBackspace} 
-              disabled={loading}
+              disabled={loading || (lockoutUntil && lockoutUntil > new Date())}
             />
         </View>
     );

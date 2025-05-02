@@ -9,10 +9,13 @@ import { StatusBar } from 'expo-status-bar';
 import { getFirestore, doc, getDoc } from "@react-native-firebase/firestore";
 import styles from './styles/AdminSetupStyles';
 
-// Constants
+// Security Constants
 const ADMIN_PIN_LENGTH = 6;
 const MAX_PIN_ATTEMPTS = 5;
+const MAX_OTP_ATTEMPTS = 5;
 const LOCKOUT_DURATION = 5 * 60 * 1000; // 5 minutes
+const OTP_LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
+
 const { width } = Dimensions.get('window');
 const PIN_CIRCLE_SIZE = width > 380 ? 20 : 16;
 const NUM_PAD_BUTTON_SIZE = width > 380 ? 70 : 60;
@@ -27,6 +30,8 @@ export default function AdminSetup({ route, navigation }) {
         hasExistingPin: false,
         lockoutUntil: null,
         pinAttempts: 0,
+        otpAttempts: 0,
+        otpLockoutUntil: null,
         isResettingPin: false
     });
     
@@ -52,6 +57,52 @@ export default function AdminSetup({ route, navigation }) {
     const auth = getAuth();
     const firestore = getFirestore();
 
+    // Security helper functions
+    const generateDeviceSalt = async () => {
+        let salt = await SecureStore.getItemAsync('deviceSalt');
+        if (!salt) {
+            const randomBytes = await Crypto.getRandomBytesAsync(16);
+            salt = Array.from(new Uint8Array(randomBytes)).map(b => b.toString(16).padStart(2, '0')).join('');
+            await SecureStore.setItemAsync('deviceSalt', salt);
+        }
+        return salt;
+    };
+
+    const hashPin = async (pin, salt, userId) => {
+        const message = pin + salt + userId;
+        const digest = await Crypto.digestStringAsync(
+            Crypto.CryptoDigestAlgorithm.SHA256,
+            message
+        );
+        return digest;
+    };
+
+    // PIN input handlers
+    const handlePinInput = (num) => {
+        if (adminPin.length < ADMIN_PIN_LENGTH && !loading) {
+            setAdminPin(prev => prev + num);
+        }
+    };
+
+    const handlePinBackspace = () => {
+        if (adminPin.length > 0 && !loading) {
+            setAdminPin(prev => prev.slice(0, -1));
+        }
+    };
+
+    // Shake animation for errors
+    const startShake = () => {
+        setPinError(true);
+        Animated.sequence([
+            Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
+            Animated.timing(shakeAnimation, { toValue: -10, duration: 50, useNativeDriver: true }),
+            Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
+            Animated.timing(shakeAnimation, { toValue: 0, duration: 50, useNativeDriver: true })
+        ]).start(() => {
+            setTimeout(() => setPinError(false), 500);
+        });
+    };
+
     // Initialize on mount
     useEffect(() => {
         Animated.timing(fadeAnim, {
@@ -72,34 +123,31 @@ export default function AdminSetup({ route, navigation }) {
                 return;
             }
             
-            // Check for existing PIN
-            const existingPin = await SecureStore.getItemAsync(`adminPinHash_${userId}`);
-            const lockoutStatus = await checkLockoutStatus(userId);
+            // Check for existing PIN and lockout status
+            const [existingPin, pinLockout, otpLockout] = await Promise.all([
+                SecureStore.getItemAsync(`adminPinHash_${userId}`),
+                SecureStore.getItemAsync(`adminLockoutUntil_${userId}`),
+                SecureStore.getItemAsync(`adminOtpLockoutUntil_${userId}`)
+            ]);
+            
+            const lockoutStatus = pinLockout ? new Date(parseInt(pinLockout)) : null;
+            const otpLockoutStatus = otpLockout ? new Date(parseInt(otpLockout)) : null;
             
             setAuthState(prev => ({
                 ...prev,
                 hasExistingPin: !!existingPin,
-                lockoutUntil: lockoutStatus
+                lockoutUntil: lockoutStatus && lockoutStatus > new Date() ? lockoutStatus : null,
+                otpLockoutUntil: otpLockoutStatus && otpLockoutStatus > new Date() ? otpLockoutStatus : null
             }));
             
             // Start phone auth if not locked out
-            if (!lockoutStatus) {
+            if (!lockoutStatus && !otpLockoutStatus) {
                 await handleInitialAuthentication();
             }
         } catch (error) {
             console.error("Error checking auth state:", error);
             Alert.alert("Error", "Failed to check authentication status");
         }
-    };
-
-    // Check if user is locked out
-    const checkLockoutStatus = async (userId) => {
-        const lockoutTime = await SecureStore.getItemAsync(`adminLockoutUntil_${userId}`);
-        if (lockoutTime) {
-            const lockoutDate = new Date(parseInt(lockoutTime));
-            return lockoutDate > new Date() ? lockoutDate : null;
-        }
-        return null;
     };
 
     // Handle phone number verification
@@ -117,16 +165,31 @@ export default function AdminSetup({ route, navigation }) {
         }
     };
 
-    // Verify SMS code
+    // Verify SMS code with OTP attempt limiting
     const verifyAuthCode = async () => {
         try {
+            // Check OTP lockout first
+            if (authState.otpLockoutUntil && authState.otpLockoutUntil > new Date()) {
+                const minutesLeft = Math.ceil((authState.otpLockoutUntil - new Date()) / 60000);
+                Alert.alert(
+                    "Too Many Attempts",
+                    `You've exceeded the maximum OTP attempts. Please try again in ${minutesLeft} minute(s).`
+                );
+                return;
+            }
+
             setPhoneAuthLoading(true);
             await confirmation.confirm(verificationCode);
             
-            // Mark phone as verified
+            // Reset OTP attempts on success
+            const userId = await SecureStore.getItemAsync('userUid');
+            await SecureStore.deleteItemAsync(`adminOtpLockoutUntil_${userId}`);
+            
             setAuthState(prev => ({
                 ...prev,
-                phoneVerified: true
+                phoneVerified: true,
+                otpAttempts: 0,
+                otpLockoutUntil: null
             }));
             
             setConfirmation(null);
@@ -134,28 +197,144 @@ export default function AdminSetup({ route, navigation }) {
             
             // For new admins, proceed to PIN creation
             if (!authState.hasExistingPin) {
-                setStep(1); // Show PIN creation screen
+                setStep(1);
             }
             
         } catch (error) {
             console.error("Code verification error:", error);
-            Alert.alert("Error", "Invalid verification code. Please try again.");
+            
+            // Handle OTP attempt limiting
+            const attemptsLeft = MAX_OTP_ATTEMPTS - authState.otpAttempts - 1;
+            setAuthState(prev => ({
+                ...prev,
+                otpAttempts: prev.otpAttempts + 1
+            }));
+
+            if (attemptsLeft <= 0) {
+                const userId = await SecureStore.getItemAsync('userUid');
+                const lockoutTime = new Date(Date.now() + OTP_LOCKOUT_DURATION);
+                
+                await SecureStore.setItemAsync(
+                    `adminOtpLockoutUntil_${userId}`,
+                    lockoutTime.getTime().toString()
+                );
+                
+                setAuthState(prev => ({
+                    ...prev,
+                    otpLockoutUntil: lockoutTime,
+                    otpAttempts: 0
+                }));
+                
+                Alert.alert(
+                    "Too Many Attempts",
+                    `You've exceeded the maximum OTP attempts. Please try again in ${OTP_LOCKOUT_DURATION / 60000} minutes.`
+                );
+            } else {
+                let errorMessage = "Invalid verification code";
+                if (error.code === 'auth/invalid-verification-code') {
+                    errorMessage = `The code you entered is incorrect (${attemptsLeft} attempt${attemptsLeft !== 1 ? 's' : ''} remaining)`;
+                } else if (error.code === 'auth/code-expired') {
+                    errorMessage = "This code has expired. Please request a new one";
+                }
+
+                Alert.alert("Verification Failed", errorMessage);
+            }
         } finally {
             setPhoneAuthLoading(false);
         }
     };
 
-    // Handle PIN input
-    const handlePinInput = (num) => {
-        if (adminPin.length < ADMIN_PIN_LENGTH && !loading) {
-            setAdminPin(prev => prev + num);
-        }
-    };
+    // Reset PIN after verification with OTP attempt limiting
+    const resetAdminPin = async () => {
+        try {
+            // Check OTP lockout first
+            if (authState.otpLockoutUntil && authState.otpLockoutUntil > new Date()) {
+                const minutesLeft = Math.ceil((authState.otpLockoutUntil - new Date()) / 60000);
+                Alert.alert(
+                    "Too Many Attempts",
+                    `You've exceeded the maximum OTP attempts. Please try again in ${minutesLeft} minute(s).`
+                );
+                return;
+            }
 
-    // Handle backspace
-    const handlePinBackspace = () => {
-        if (adminPin.length > 0 && !loading) {
-            setAdminPin(prev => prev.slice(0, -1));
+            setPhoneAuthLoading(true);
+            await confirmation.confirm(verificationCode);
+            
+            const userId = await SecureStore.getItemAsync('userUid');
+            if (!userId) {
+                throw new Error("User session expired. Please login again.");
+            }
+            
+            // Reset OTP attempts on success
+            await SecureStore.deleteItemAsync(`adminOtpLockoutUntil_${userId}`);
+            
+            // Clear existing PIN and lockout status
+            await Promise.all([
+                SecureStore.deleteItemAsync(`adminPinHash_${userId}`),
+                SecureStore.deleteItemAsync(`adminLockoutUntil_${userId}`)
+            ]);
+            
+            // Reset state
+            setAuthState(prev => ({
+                ...prev,
+                hasExistingPin: false,
+                isResettingPin: false,
+                pinAttempts: 0,
+                lockoutUntil: null,
+                phoneVerified: true,
+                otpAttempts: 0,
+                otpLockoutUntil: null
+            }));
+            
+            setConfirmation(null);
+            setVerificationCode('');
+            setAdminPin('');
+            setStep(1); // Go to PIN creation
+            
+            Alert.alert("Success", "You can now set a new admin PIN.");
+        } catch (error) {
+            console.error("Code verification error:", error);
+            
+            // Handle OTP attempt limiting
+            const attemptsLeft = MAX_OTP_ATTEMPTS - authState.otpAttempts - 1;
+            setAuthState(prev => ({
+                ...prev,
+                otpAttempts: prev.otpAttempts + 1,
+                isResettingPin: attemptsLeft > 0 // Only keep in reset mode if attempts remain
+            }));
+
+            if (attemptsLeft <= 0) {
+                const userId = await SecureStore.getItemAsync('userUid');
+                const lockoutTime = new Date(Date.now() + OTP_LOCKOUT_DURATION);
+                
+                await SecureStore.setItemAsync(
+                    `adminOtpLockoutUntil_${userId}`,
+                    lockoutTime.getTime().toString()
+                );
+                
+                setAuthState(prev => ({
+                    ...prev,
+                    otpLockoutUntil: lockoutTime,
+                    otpAttempts: 0,
+                    isResettingPin: false
+                }));
+                
+                Alert.alert(
+                    "Too Many Attempts",
+                    `You've exceeded the maximum OTP attempts. Please try again in ${OTP_LOCKOUT_DURATION / 60000} minutes.`
+                );
+            } else {
+                let errorMessage = "Invalid verification code";
+                if (error.code === 'auth/invalid-verification-code') {
+                    errorMessage = `The code you entered is incorrect (${attemptsLeft} attempt${attemptsLeft !== 1 ? 's' : ''} remaining)`;
+                } else if (error.code === 'auth/code-expired') {
+                    errorMessage = "This code has expired. Please request a new one";
+                }
+
+                Alert.alert("Verification Failed", errorMessage);
+            }
+        } finally {
+            setPhoneAuthLoading(false);
         }
     };
 
@@ -324,83 +503,6 @@ export default function AdminSetup({ route, navigation }) {
         );
     };
 
-    // Reset PIN after verification
-    const resetAdminPin = async () => {
-        try {
-            setPhoneAuthLoading(true);
-            await confirmation.confirm(verificationCode);
-            
-            const userId = await SecureStore.getItemAsync('userUid');
-            if (!userId) {
-                throw new Error("User session expired. Please login again.");
-            }
-            
-            // Clear existing PIN and lockout status
-            await SecureStore.deleteItemAsync(`adminPinHash_${userId}`);
-            await SecureStore.deleteItemAsync(`adminLockoutUntil_${userId}`);
-            
-            // Reset state
-            setAuthState(prev => ({
-                ...prev,
-                hasExistingPin: false,
-                isResettingPin: false,
-                pinAttempts: 0,
-                lockoutUntil: null,
-                phoneVerified: true
-            }));
-            
-            setConfirmation(null);
-            setVerificationCode('');
-            setAdminPin('');
-            setStep(1); // Go to PIN creation
-            
-            Alert.alert("Success", "You can now set a new admin PIN.");
-        } catch (error) {
-            console.error("Code verification error:", error);
-            Alert.alert("Error", "Invalid verification code. Please try again.");
-            setAuthState(prev => ({
-                ...prev,
-                isResettingPin: false
-            }));
-        } finally {
-            setPhoneAuthLoading(false);
-        }
-    };
-
-    // Shake animation for errors
-    const startShake = () => {
-        setPinError(true);
-        Animated.sequence([
-            Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
-            Animated.timing(shakeAnimation, { toValue: -10, duration: 50, useNativeDriver: true }),
-            Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
-            Animated.timing(shakeAnimation, { toValue: 0, duration: 50, useNativeDriver: true })
-        ]).start(() => {
-            setTimeout(() => setPinError(false), 500);
-        });
-    };
-
-    // Security helper functions
-    const generateDeviceSalt = async () => {
-        let salt = await SecureStore.getItemAsync('deviceSalt');
-        if (!salt) {
-            const randomBytes = new Uint8Array(16);
-            await Crypto.getRandomValues(randomBytes);
-            salt = Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-            await SecureStore.setItemAsync('deviceSalt', salt);
-        }
-        return salt;
-    };
-
-    const hashPin = async (pin, salt, userId) => {
-        const encoder = new TextEncoder();
-        const keyMaterial = await Crypto.digest(
-            'SHA-256',
-            encoder.encode(pin + salt + userId)
-        );
-        return Array.from(new Uint8Array(keyMaterial)).map(b => b.toString(16).padStart(2, '0')).join('');
-    };
-
     // Auto-submit when PIN is complete
     useEffect(() => {
         setActivePinIndex(adminPin.length);
@@ -419,72 +521,81 @@ export default function AdminSetup({ route, navigation }) {
     }, [adminPin]);
 
     // Render different screens based on auth state
-    // Render different screens based on auth state
-if (authState.lockoutUntil) {
-    return (
-        <LockoutScreen 
-            lockoutUntil={authState.lockoutUntil} 
-            onForgotPin={handleForgotPin} 
-        />
-    );
-}
+    if (authState.lockoutUntil) {
+        return (
+            <LockoutScreen 
+                lockoutUntil={authState.lockoutUntil} 
+                onForgotPin={handleForgotPin} 
+            />
+        );
+    }
 
-if (!authState.phoneVerified || (authState.isResettingPin && !authState.phoneVerified)) {
-    return confirmation ? (
-        <PhoneVerificationScreen 
-            verificationCode={verificationCode}
-            setVerificationCode={setVerificationCode}
-            onVerify={authState.isResettingPin ? resetAdminPin : verifyAuthCode}
-            onCancel={() => {
-                setConfirmation(null);
-                setVerificationCode('');
-                setAuthState(prev => ({
-                    ...prev,
-                    isResettingPin: false
-                }));
-            }}
-            loading={phoneAuthLoading}
-            isResetting={authState.isResettingPin}
-        />
-    ) : (
-        <InitialAuthScreen 
-            onAuthenticate={handleInitialAuthentication} 
-            loading={phoneAuthLoading}
-        />
-    );
-}
+    if (authState.otpLockoutUntil) {
+        return (
+            <OtpLockoutScreen 
+                lockoutUntil={authState.otpLockoutUntil} 
+            />
+        );
+    }
 
-if (authState.hasExistingPin) {
+    if (!authState.phoneVerified || (authState.isResettingPin && !authState.phoneVerified)) {
+        return confirmation ? (
+            <PhoneVerificationScreen 
+                verificationCode={verificationCode}
+                setVerificationCode={setVerificationCode}
+                onVerify={authState.isResettingPin ? resetAdminPin : verifyAuthCode}
+                onCancel={() => {
+                    setConfirmation(null);
+                    setVerificationCode('');
+                    setAuthState(prev => ({
+                        ...prev,
+                        isResettingPin: false
+                    }));
+                }}
+                loading={phoneAuthLoading}
+                isResetting={authState.isResettingPin}
+                attemptsLeft={MAX_OTP_ATTEMPTS - authState.otpAttempts}
+            />
+        ) : (
+            <InitialAuthScreen 
+                onAuthenticate={handleInitialAuthentication} 
+                loading={phoneAuthLoading}
+            />
+        );
+    }
+
+    if (authState.hasExistingPin) {
+        return (
+            <PinEntryScreen 
+                pin={adminPin}
+                onPinInput={handlePinInput}
+                onBackspace={handlePinBackspace}
+                onForgotPin={handleForgotPin}
+                loading={loading}
+                error={pinError}
+                shakeAnimation={shakeAnimation}
+                activePinIndex={activePinIndex}
+                attemptsLeft={MAX_PIN_ATTEMPTS - authState.pinAttempts}
+            />
+        );
+    }
+
     return (
-        <PinEntryScreen 
+        <PinCreationScreen 
+            step={step}
             pin={adminPin}
             onPinInput={handlePinInput}
             onBackspace={handlePinBackspace}
-            onForgotPin={handleForgotPin}
             loading={loading}
             error={pinError}
             shakeAnimation={shakeAnimation}
             activePinIndex={activePinIndex}
+            onBack={() => {
+                setStep(1);
+                setAdminPin('');
+            }}
         />
     );
-}
-
-return (
-    <PinCreationScreen 
-        step={step}
-        pin={adminPin}
-        onPinInput={handlePinInput}
-        onBackspace={handlePinBackspace}
-        loading={loading}
-        error={pinError}
-        shakeAnimation={shakeAnimation}
-        activePinIndex={activePinIndex}
-        onBack={() => {
-            setStep(1);
-            setAdminPin('');
-        }}
-    />
-);
 }
 
 // Sub-components
@@ -513,7 +624,7 @@ const LockoutScreen = ({ lockoutUntil, onForgotPin }) => {
                 </View>
                 <Text style={styles.title}>Account Locked</Text>
                 <Text style={styles.subtitle}>
-                    Too many incorrect attempts. Please try again in {minutesLeft} minute{minutesLeft !== 1 ? 's' : ''}.
+                    Too many incorrect PIN attempts. Please try again in {minutesLeft} minute{minutesLeft !== 1 ? 's' : ''}.
                 </Text>
             </View>
             <View style={styles.footer}>
@@ -526,6 +637,25 @@ const LockoutScreen = ({ lockoutUntil, onForgotPin }) => {
                 >
                     Verify Identity
                 </Button>
+            </View>
+        </View>
+    );
+};
+
+const OtpLockoutScreen = ({ lockoutUntil }) => {
+    const minutesLeft = Math.ceil((lockoutUntil - new Date()) / 60000);
+    
+    return (
+        <View style={styles.container}>
+            <HeaderSection />
+            <View style={styles.content}>
+                <View style={styles.lockIconContainer}>
+                    <MaterialIcons name="lock-clock" size={60} color="#0033A0" />
+                </View>
+                <Text style={styles.title}>Verification Locked</Text>
+                <Text style={styles.subtitle}>
+                    Too many incorrect OTP attempts. Please try again in {minutesLeft} minute{minutesLeft !== 1 ? 's' : ''}.
+                </Text>
             </View>
         </View>
     );
@@ -559,13 +689,15 @@ const InitialAuthScreen = ({ onAuthenticate, loading }) => (
         </View>
     </View>
 );
+
 const PhoneVerificationScreen = ({ 
     verificationCode, 
     setVerificationCode, 
     onVerify, 
     onCancel,
     loading,
-    isResetting
+    isResetting,
+    attemptsLeft
 }) => (
     <View style={styles.container}>
         <HeaderSection />
@@ -578,6 +710,13 @@ const PhoneVerificationScreen = ({
                     ? "Enter the verification code sent to your phone to reset your admin PIN"
                     : "Enter the verification code sent to your phone"}
             </Text>
+            
+            {attemptsLeft < MAX_OTP_ATTEMPTS && (
+                <Text style={styles.attemptsText}>
+                    Attempts remaining: {attemptsLeft}
+                </Text>
+            )}
+            
             <TextInput
                 label="Verification Code"
                 value={verificationCode}
@@ -620,7 +759,8 @@ const PinEntryScreen = ({
     loading,
     error,
     shakeAnimation,
-    activePinIndex
+    activePinIndex,
+    attemptsLeft
 }) => (
     <View style={styles.container}>
         <HeaderSection />
@@ -629,6 +769,12 @@ const PinEntryScreen = ({
             <Text style={styles.subtitle}>
                 Enter your {ADMIN_PIN_LENGTH}-digit PIN to continue
             </Text>
+            
+            {attemptsLeft < MAX_PIN_ATTEMPTS && (
+                <Text style={styles.attemptsText}>
+                    Attempts remaining: {attemptsLeft}
+                </Text>
+            )}
             
             <Animated.View style={{ transform: [{ translateX: shakeAnimation }] }}>
                 <PinInput 
