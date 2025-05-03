@@ -1,4 +1,3 @@
-// components/MedicalFinancialSection.js
 import React, { memo, useState, useMemo, useCallback } from 'react';
 import {
   View,
@@ -16,7 +15,6 @@ import PropTypes from 'prop-types';
 const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/80';
 const FILTER_OPTIONS = [
   { id: 'guarantee', label: 'Guarantee', color: '#4CAF50' },
-  { id: 'medical-financial', label: 'Medical Financial', color: '#2196F3' },
   { id: 'dswd-medical', label: 'DSWD Medical', color: '#5E35B1' },
   { id: 'dswd-burial', label: 'DSWD Burial', color: '#5E35B1' },
 ];
@@ -24,7 +22,6 @@ const FILTER_OPTIONS = [
 // Program type descriptions
 const PROGRAM_DESCRIPTIONS = {
   'guarantee': 'Hospital admission guarantee letter services',
-  'medical-financial': 'Financial assistance for medical treatments and procedures',
   'dswd-medical': 'DSWD financial assistance for medical expenses',
   'dswd-burial': 'Assistance for funeral and burial expenses',
   'default': 'Medical financial assistance program'
@@ -43,69 +40,21 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
   const navigateToHospital = useCallback((hospital) => {
     if (!hospital) return;
     
-    // Add default requirements based on type if not provided
-    const enhancedHospital = {
-      ...hospital,
-      requirements: hospital.requirements || getRequirements(hospital.type, 'outpatient')
-    };
-    
     navigation.navigate("AssistanceScreen", { 
-      hospital: enhancedHospital,
+      hospital: {
+        ...hospital,
+        // Ensure requirements are properly structured
+        requirements: hospital.requirements || {
+          inpatient: [],
+          outpatient: []
+        }
+      },
     });
   }, [navigation]);
 
   const navigateToFinancialAssistance = useCallback(() => {
     navigation.navigate("FinancialAssistanceScreen");
   }, [navigation]);
-
-  // Helper function to get requirements (matching the one in AssistanceScreen)
-  function getRequirements(type, patientStatus) {
-    const requirements = {
-      'guarantee': [
-        'Hospital Guarantee Request Letter',
-        'Medical Abstract/Certificate (with doctor\'s signature)',
-        'Valid ID (front & back)',
-        'Certificate of Indigency (from barangay)',
-        'Certificate of Employment/Income (if applicable)',
-        'Hospital Bill (if available)'
-      ],
-      'medical-financial': [
-        patientStatus === 'inpatient' 
-          ? 'Clinical Abstract (for confined patients)' 
-          : 'Medical Certificate (for non-confined patients)',
-        'Quotation/Bill/Statement of Account (from hospital)',
-        'Valid ID with Muntinlupa address',
-        'Voter\'s ID / COMELEC Certification (proof of residency)',
-        'Certificate of Indigency (from barangay)',
-        'Authorization Letter (if applying on behalf)'
-      ],
-      'endorsement': [
-        'Endorsement Request Letter',
-        'Medical Certificate (updated within 3 months)',
-        'Valid ID (front & back)',
-        'Certificate of Indigency (from barangay)',
-        'Laboratory results (if available)',
-        'Treatment plan from doctor'
-      ],
-      'dswd-medical': [
-        'DSWD Prescribed Request Form (from DSWD office)',
-        'Certificate of Indigency (with barangay seal & signature)',
-        'Medical Certificate/Abstract (from doctor)',
-        'Prescription/Lab Request (2 copies, doctor-signed)',
-        'Unpaid Hospital Bill (signed by billing clerk)',
-        'Social Case Study (required for dialysis/cancer patients)'
-      ],
-      'dswd-burial': [
-        'Death Certificate (Certified True Copy + photocopy)',
-        'Funeral Contract (Original + photocopy)',
-        'Promissory Note / Certificate of Balance (from funeral home)',
-        'Valid ID of Claimant (2 photocopies)',
-        'Certificate of Indigency (from barangay)'
-      ]
-    };
-
-    return requirements[type] || requirements['medical-financial'];
-  }
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -117,6 +66,16 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
 
   const getProgramDescription = (type) => {
     return PROGRAM_DESCRIPTIONS[type] || PROGRAM_DESCRIPTIONS.default;
+  };
+
+  const getCategoryColor = (category) => {
+    switch ((category || '').toLowerCase()) {
+      case 'doh hospital': return '#4CAF50';
+      case 'local hospital': return '#2196F3';
+      case 'national program': return '#9C27B0';
+      case 'suc hospital': return '#FF9800';
+      default: return '#607D8B';
+    }
   };
 
   const renderFilterButton = ({ id, label, color }) => (
@@ -153,9 +112,17 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
           resizeMode="contain"
         />
       </View>
+      
+      {hospital.category && (
+        <View style={[styles.categoryBadge, { backgroundColor: getCategoryColor(hospital.category) }]}>
+          <Text style={styles.categoryText}>{hospital.category}</Text>
+        </View>
+      )}
+      
       <View style={[styles.requirementBadge, { backgroundColor: hospital.color }]}>
         <Text style={styles.badgeText}>{getRequirementTypeLabel(hospital.type)}</Text>
       </View>
+      
       <Text style={styles.hospitalName} numberOfLines={2}>
         {hospital.name}
       </Text>
@@ -176,12 +143,17 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
   return (
     <View style={styles.container}>
       <View style={styles.headerContainer}>
-        <Text style={styles.sectionTitle}> Financial Assistance</Text>
+        <Text style={styles.sectionTitle}>Financial Assistance</Text>
         <TouchableOpacity 
           onPress={onRefresh}
           style={styles.refreshButton}
         >
-          <FontAwesome5 name="sync-alt" size={14} color="#003580" />
+          <FontAwesome5 
+            name="sync-alt" 
+            size={14} 
+            color="#003580" 
+            style={refreshing && styles.refreshingIcon}
+          />
         </TouchableOpacity>
       </View>
       
@@ -250,9 +222,13 @@ MedicalFinancialSection.propTypes = {
       id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]).isRequired,
       name: PropTypes.string.isRequired,
       type: PropTypes.string.isRequired,
+      category: PropTypes.string,
       logo: PropTypes.string,
       color: PropTypes.string,
-      requirements: PropTypes.arrayOf(PropTypes.string),
+      requirements: PropTypes.shape({
+        inpatient: PropTypes.arrayOf(PropTypes.string),
+        outpatient: PropTypes.arrayOf(PropTypes.string)
+      }),
     })
   ),
 };
@@ -268,9 +244,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
+    paddingHorizontal: 5,
   },
   refreshButton: {
     padding: 8,
+  },
+  refreshingIcon: {
+    transform: [{ rotate: '360deg' }],
   },
   sectionTitle: {
     fontSize: 20,
@@ -280,7 +260,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#003580',
     borderRadius: 15,
-    padding: 12,
+    padding: 15,
     elevation: 4,
     shadowColor: '#000',
     shadowOpacity: 0.2,
@@ -333,7 +313,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 10,
     elevation: 2,
-    marginBottom: 5,
+    marginBottom: 8,
     shadowColor: '#000',
     shadowOpacity: 0.15,
     shadowRadius: 5,
@@ -343,9 +323,21 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  categoryBadge: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    marginBottom: 5,
+    alignSelf: 'center',
+  },
+  categoryText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: 'bold',
+  },
   requirementBadge: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
     borderRadius: 10,
     marginBottom: 5,
   },

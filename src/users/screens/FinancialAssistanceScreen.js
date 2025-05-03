@@ -80,13 +80,14 @@ const FinancialAssistanceScreen = ({ navigation }) => {
         return {
           id: doc.id,
           ...appData,
-          assistanceType: determineAssistanceType(appData),
+          assistanceType: appData.programType || 'medical',
           formattedDate: createdAt ? formatApplicationDate(createdAt) : "Date not available",
           programName: appData.programName || 'Medical Assistance',
           estimatedCost: formatCurrency(appData.estimatedCost),
           medicalCondition: appData.medicalCondition || 'Not specified',
           status: appData.status || 'pending',
-          urgencyLevel: appData.urgencyLevel || 'normal'
+          urgencyLevel: appData.urgencyLevel || 'normal',
+          category: appData.programCategory || 'General Program'
         };
       });
 
@@ -122,13 +123,6 @@ const FinancialAssistanceScreen = ({ navigation }) => {
   };
 
   // Helper functions
-  const determineAssistanceType = (appData) => {
-    if (appData.programType) return appData.programType;
-    if (appData.programName?.includes('Burial')) return 'Burial';
-    if (appData.programName?.includes('Education')) return 'Education';
-    return 'Medical';
-  };
-
   const formatApplicationDate = (date) => {
     return date.toLocaleString('en-US', {
       year: 'numeric',
@@ -155,6 +149,10 @@ const FinancialAssistanceScreen = ({ navigation }) => {
       "Contact Information",
       `This is your registered phone number: ${phoneNumber}`,
       [
+        {
+          text: "Call",
+          onPress: () => Linking.openURL(`tel:${phoneNumber.replace(/[^\d]/g, '')}`)
+        },
         {
           text: "OK",
           style: "cancel"
@@ -196,11 +194,12 @@ const FinancialAssistanceScreen = ({ navigation }) => {
           return {
             id: doc.id,
             ...appData,
-            assistanceType: determineAssistanceType(appData),
+            assistanceType: appData.programType || 'medical',
             formattedDate: appData.createdAt?.toDate() ? 
               formatApplicationDate(appData.createdAt.toDate()) : "N/A",
             estimatedCost: formatCurrency(appData.estimatedCost),
-            status: appData.status || 'pending'
+            status: appData.status || 'pending',
+            category: appData.programCategory || 'General Program'
           };
         });
         setApplications(updatedApps);
@@ -230,6 +229,16 @@ const FinancialAssistanceScreen = ({ navigation }) => {
       case 'high': return { name: 'warning', color: '#F44336' };
       case 'medium': return { name: 'error-outline', color: '#FF9800' };
       default: return { name: 'info-outline', color: '#2196F3' };
+    }
+  };
+
+  const getCategoryColor = (category) => {
+    switch ((category || '').toLowerCase()) {
+      case 'doh hospital': return '#4CAF50';
+      case 'local hospital': return '#2196F3';
+      case 'national program': return '#9C27B0';
+      case 'suc hospital': return '#FF9800';
+      default: return '#607D8B';
     }
   };
 
@@ -270,10 +279,20 @@ const FinancialAssistanceScreen = ({ navigation }) => {
         </View>
       </View>
 
+      {item.category && (
+        <View style={[styles.categoryBadge, { backgroundColor: getCategoryColor(item.category) }]}>
+          <Text style={styles.categoryText}>{item.category.toUpperCase()}</Text>
+        </View>
+      )}
+
       <View style={styles.detailRow}>
-        <FontAwesome5 name="stethoscope" size={14} color="#555" />
+        <FontAwesome5 
+          name={item.assistanceType === 'dswd-burial' ? 'cross' : 'stethoscope'} 
+          size={14} 
+          color="#555" 
+        />
         <Text style={styles.detailValue} numberOfLines={2}>
-          {item.medicalCondition}
+          {item.medicalCondition || (item.assistanceType === 'dswd-burial' ? 'Burial Assistance' : 'Medical Condition Not Specified')}
         </Text>
       </View>
 
@@ -363,6 +382,12 @@ const FinancialAssistanceScreen = ({ navigation }) => {
                   "Couldn't load applications. Please try again." : 
                   "Submit an application through the Assistance section"}
               </Text>
+              <TouchableOpacity
+                style={styles.submitNewButton}
+                onPress={() => navigation.navigate('Assistance')}
+              >
+                <Text style={styles.submitNewButtonText}>Submit New Application</Text>
+              </TouchableOpacity>
             </View>
           }
           contentContainerStyle={applications.length === 0 && styles.emptyList}
@@ -468,6 +493,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold'
   },
+  categoryBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    marginBottom: 10
+  },
+  categoryText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold'
+  },
   detailRow: {
     flexDirection: 'row',
     marginBottom: 10,
@@ -533,7 +570,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 2
+    elevation: 2,
+    marginTop: 20
   },
   submitNewButtonText: {
     color: 'white',

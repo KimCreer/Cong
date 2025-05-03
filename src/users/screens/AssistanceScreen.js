@@ -50,16 +50,19 @@ const AssistanceScreen = () => {
     patientStatus: 'outpatient',
   });
 
-  // Hospital data
+  // Hospital data from route params
   const [hospital, setHospital] = useState(
     route.params?.hospital || {
       id: 0,
       name: 'General Medical Assistance',
       type: 'medical-financial',
+      category: 'General Program',
       logo: 'https://via.placeholder.com/150',
       color: '#2196F3',
-      requirements: getRequirements('medical-financial', 'outpatient'),
-      contact: 'DOH-MAIP Office | (02) 8123-4567'
+      requirements: {
+        inpatient: [],
+        outpatient: []
+      },
     }
   );
 
@@ -69,16 +72,6 @@ const AssistanceScreen = () => {
       office: 'Hospital Guarantee Office',
       phone: '(02) 8931-8101',
       email: 'guarantee@muntinlupa.gov.ph'
-    },
-    'medical-financial': {
-      office: 'City Health Office',
-      phone: '(02) 8862-3256',
-      email: 'health.office@muntinlupa.gov.ph'
-    },
-    'endorsement': {
-      office: 'Hospital Endorsement Office',
-      phone: '(02) 8862-1234',
-      email: 'endorsement@muntinlupa.gov.ph'
     },
     'dswd-medical': {
       office: 'DSWD Office',
@@ -91,71 +84,11 @@ const AssistanceScreen = () => {
       email: 'dswd.burial@muntinlupa.gov.ph'
     },
     default: {
-      office: 'DOH-MAIP Office',
-      phone: '(02) 8123-4567',
-      email: 'maip.office@muntinlupa.gov.ph'
+      office: 'City Health Office',
+      phone: '(02) 8862-3256',
+      email: 'health.office@muntinlupa.gov.ph'
     }
   };
-
-  // Function to get requirements
-  function getRequirements(type, patientStatus) {
-    const requirements = {
-      'guarantee': [
-        'Hospital Guarantee Request Letter (Liham ng Kahilingan para sa Guarantee)',
-        'Medical Abstract/Certificate (may pirma ng doktor)',
-        'Valid ID (harap at likod)',
-        'Certificate of Indigency (mula sa barangay)',
-        'Certificate of Employment/Income (kung empleyado)',
-        'Hospital Bill (kung available)'
-      ],
-      'medical-financial': [
-        patientStatus === 'inpatient' 
-          ? 'Clinical Abstract (para sa confined patients)' 
-          : 'Medical Certificate (para sa outpatient)',
-        'Quotation/Bill/Statement of Account (mula sa hospital)',
-        'Valid ID na may Muntinlupa address',
-        'Voter\'s ID / COMELEC Certification (patunay ng residency)',
-        'Certificate of Indigency (mula sa barangay)',
-        'Authorization Letter (kung ikaw ay representative)'
-      ],
-      'endorsement': [
-        'Endorsement Request Letter (Liham ng Endorsement)',
-        'Medical Certificate (updated within 3 months)',
-        'Valid ID (harap at likod)',
-        'Certificate of Indigency (mula sa barangay)',
-        'Laboratory results (kung available)',
-        'Treatment plan from doctor'
-      ],
-      'dswd-medical': [
-        'DSWD Prescribed Request Form (mula sa DSWD office)',
-        'Certificate of Indigency (may barangay seal at pirma)',
-        'Medical Certificate/Abstract (mula sa doktor)',
-        'Prescription/Lab Request (2 copies, may pirma ng doktor)',
-        'Unpaid Hospital Bill (may pirma ng billing clerk)',
-        'Social Case Study (kailangan para sa dialysis/cancer patients)'
-      ],
-      'dswd-burial': [
-        'Death Certificate (Certified True Copy + photocopy)',
-        'Funeral Contract (Original + photocopy)',
-        'Promissory Note / Certificate of Balance (mula sa funeral home)',
-        'Valid ID of Claimant (2 photocopies)',
-        'Certificate of Indigency (mula sa barangay)'
-      ]
-    };
-
-    return requirements[type] || requirements['medical-financial'];
-  }
-
-  useEffect(() => {
-    // Only update requirements for types that use patient status
-    if (hospital.type && ['medical-financial', 'endorsement'].includes(hospital.type)) {
-      const updatedRequirements = getRequirements(hospital.type, formData.patientStatus);
-      setHospital(prev => ({
-        ...prev,
-        requirements: updatedRequirements
-      }));
-    }
-  }, [formData.patientStatus, hospital.type]);
 
   useEffect(() => {
     if (hospital?.name) {
@@ -197,7 +130,7 @@ const AssistanceScreen = () => {
     setRefreshing(true);
     setTimeout(() => {
       setRefreshing(false);
-      Alert.alert('Na-refresh', 'Na-update na ang application data');
+      Alert.alert('Refreshed', 'Application data has been updated');
     }, 1000);
   }, []);
 
@@ -219,8 +152,8 @@ const AssistanceScreen = () => {
     
     if (missingFields.length > 0) {
       const fieldNames = missingFields.map(f => 
-        f === 'fullName' ? 'buong pangalan' :
-        f === 'contactNumber' ? 'numero ng telepono' :
+        f === 'fullName' ? 'full name' :
+        f === 'contactNumber' ? 'contact number' :
         f === 'address' ? 'address' :
         f === 'medicalCondition' ? 'medical condition' :
         f === 'estimatedCost' ? 'estimated cost' :
@@ -228,9 +161,9 @@ const AssistanceScreen = () => {
       ).join(', ');
       
       Alert.alert(
-        'Kulang ang Impormasyon',
-        `Pakiprovide ang mga sumusunod: ${fieldNames}`,
-        [{ text: 'Sige' }]
+        'Missing Information',
+        `Please provide the following: ${fieldNames}`,
+        [{ text: 'OK' }]
       );
       return;
     }
@@ -240,7 +173,7 @@ const AssistanceScreen = () => {
     try {
       const user = auth().currentUser;
       if (!user) {
-        Alert.alert('Error', 'Kailangan mong mag-log in para makapag-submit ng application');
+        Alert.alert('Error', 'You need to be logged in to submit an application');
         setIsLoading(false);
         return;
       }
@@ -249,6 +182,7 @@ const AssistanceScreen = () => {
         ...formData,
         programType: hospital.type,
         programName: hospital.name,
+        programCategory: hospital.category,
         status: 'Pending',
         userId: user.uid,
         userEmail: user.email || '',
@@ -261,9 +195,9 @@ const AssistanceScreen = () => {
 
       const referenceNumber = `APP-${Math.floor(100000 + Math.random() * 900000)}`;
       Alert.alert(
-        'Na-submit ang Application',
-        `Ang iyong application para sa ${hospital.name} ay na-submit na!\n\nReference Number: ${referenceNumber}`,
-        [{ text: 'Sige', onPress: () => navigation.goBack() }]
+        'Application Submitted',
+        `Your application for ${hospital.name} has been submitted!\n\nReference Number: ${referenceNumber}`,
+        [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
       
       setFormData({
@@ -279,7 +213,7 @@ const AssistanceScreen = () => {
       
     } catch (error) {
       console.error('Submission error:', error);
-      Alert.alert('Error', 'Hindi na-submit ang application. Pakisubukan ulit.');
+      Alert.alert('Error', 'Failed to submit application. Please try again.');
     } finally {
       setIsLoading(false);
       setModalVisible(false);
@@ -292,17 +226,17 @@ const AssistanceScreen = () => {
 
     Alert.alert(
       'Contact Information',
-      `${hospital.name}\n${contact.office}\nTelepono: ${contact.phone}\nEmail: ${contact.email}\n\nPara sa mga tanong at assistance:`,
+      `${hospital.name}\n${contact.office}\nPhone: ${contact.phone}\nEmail: ${contact.email}\n\nFor questions and assistance:`,
       [
         { 
-          text: 'Tawagan', 
+          text: 'Call', 
           onPress: () => Linking.openURL(`tel:${phoneNumber}`) 
         },
         { 
-          text: 'I-email', 
-          onPress: () => Linking.openURL(`mailto:${contact.email}?subject=Tanong tungkol sa ${hospital.name}`) 
+          text: 'Email', 
+          onPress: () => Linking.openURL(`mailto:${contact.email}?subject=Question about ${hospital.name}`) 
         },
-        { text: 'Sige', style: 'cancel' }
+        { text: 'OK', style: 'cancel' }
       ]
     );
   };
@@ -310,44 +244,51 @@ const AssistanceScreen = () => {
   const getProgramTypeDisplayName = (type) => {
     const typeMap = {
       'guarantee': 'Guarantee Program',
-      'medical-financial': 'Medical Financial',
-      'endorsement': 'Hospital Endorsement',
       'dswd-medical': 'DSWD Medical',
       'dswd-burial': 'DSWD Burial',
     };
     
-    return typeMap[type] || 'Standard Program';
+    return typeMap[type] || 'Medical Assistance';
   };
 
   const renderProgramBadge = () => {
     const badgeColors = {
       'guarantee': '#4CAF50',
-      'medical-financial': '#2196F3',
-      'endorsement': '#9C27B0',
       'dswd-medical': '#5E35B1',
       'dswd-burial': '#5E35B1',
-      'extensive': '#F75A5A',
-      'standard': '#F1BA88'
+      'default': '#2196F3'
     };
 
-    const color = badgeColors[hospital.type] || badgeColors.standard;
+    const color = badgeColors[hospital.type] || badgeColors.default;
     const text = getProgramTypeDisplayName(hospital.type);
 
     return (
-      <View style={[styles.badge, { backgroundColor: color || hospital.color }]}>
+      <View style={[styles.badge, { backgroundColor: color }]}>
         <Text style={styles.badgeText}>{text}</Text>
       </View>
     );
+  };
+
+  const getCurrentRequirements = () => {
+    if (!hospital.requirements) return [];
+    
+    if (hospital.type === 'dswd-medical' || hospital.type === 'dswd-burial') {
+      return hospital.requirements;
+    }
+    
+    return formData.patientStatus === 'inpatient' 
+      ? hospital.requirements.inpatient 
+      : hospital.requirements.outpatient;
   };
 
   const renderFormFields = () => {
     if (hospital.type === 'dswd-burial') {
       return (
         <>
-          <Text style={styles.label}>Pangalan ng Namatay *</Text>
+          <Text style={styles.label}>Deceased Person's Name *</Text>
           <TextInput
             style={[styles.input, focusedInput === 'medicalCondition' && styles.inputFocused]}
-            placeholder="Buong pangalan ng namatay"
+            placeholder="Full name of the deceased"
             value={formData.medicalCondition}
             onChangeText={(text) => handleInputChange('medicalCondition', text)}
             onFocus={() => setFocusedInput('medicalCondition')}
@@ -358,7 +299,7 @@ const AssistanceScreen = () => {
           <Text style={styles.label}>Funeral Home</Text>
           <TextInput
             style={[styles.input, focusedInput === 'hospitalName' && styles.inputFocused]}
-            placeholder="Pangalan ng funeral home"
+            placeholder="Name of funeral home"
             value={formData.hospitalName}
             onChangeText={(text) => handleInputChange('hospitalName', text)}
             onFocus={() => setFocusedInput('hospitalName')}
@@ -369,7 +310,7 @@ const AssistanceScreen = () => {
           <Text style={styles.label}>Estimated Burial Costs (₱)</Text>
           <TextInput
             style={[styles.input, focusedInput === 'estimatedCost' && styles.inputFocused]}
-            placeholder="Halaga ng kailangan"
+            placeholder="Amount needed"
             value={formData.estimatedCost}
             onChangeText={(text) => handleInputChange('estimatedCost', text)}
             onFocus={() => setFocusedInput('estimatedCost')}
@@ -383,138 +324,142 @@ const AssistanceScreen = () => {
 
     return (
       <>
-        <Text style={styles.label}>Pangalan ng Hospital *</Text>
+        <Text style={styles.label}>Hospital Name *</Text>
         <TextInput
           style={[styles.input, styles.disabledInput]}
           value={hospital.name}
           editable={false}
         />
         
-        <Text style={styles.label}>Medical Condition *</Text>
-        <TextInput
-          style={[styles.input, styles.textArea, focusedInput === 'medicalCondition' && styles.inputFocused]}
-          placeholder="Ilarawan ang medical condition o kailangang procedure"
-          value={formData.medicalCondition}
-          onChangeText={(text) => handleInputChange('medicalCondition', text)}
-          onFocus={() => setFocusedInput('medicalCondition')}
-          onBlur={() => setFocusedInput(null)}
-          multiline
-          returnKeyType="next"
-        />
+        {hospital.type !== 'dswd-medical' && (
+          <>
+            <Text style={styles.label}>Medical Condition *</Text>
+            <TextInput
+              style={[styles.input, styles.textArea, focusedInput === 'medicalCondition' && styles.inputFocused]}
+              placeholder="Describe the medical condition or needed procedure"
+              value={formData.medicalCondition}
+              onChangeText={(text) => handleInputChange('medicalCondition', text)}
+              onFocus={() => setFocusedInput('medicalCondition')}
+              onBlur={() => setFocusedInput(null)}
+              multiline
+              returnKeyType="next"
+            />
 
-        <Text style={styles.label}>Estimated Costs (₱) *</Text>
-        <TextInput
-          style={[styles.input, focusedInput === 'estimatedCost' && styles.inputFocused]}
-          placeholder="Halaga ng kailangan"
-          value={formData.estimatedCost}
-          onChangeText={(text) => handleInputChange('estimatedCost', text)}
-          onFocus={() => setFocusedInput('estimatedCost')}
-          onBlur={() => setFocusedInput(null)}
-          keyboardType="numeric"
-          returnKeyType="done"
-        />
+            <Text style={styles.label}>Estimated Costs (₱) *</Text>
+            <TextInput
+              style={[styles.input, focusedInput === 'estimatedCost' && styles.inputFocused]}
+              placeholder="Amount needed"
+              value={formData.estimatedCost}
+              onChangeText={(text) => handleInputChange('estimatedCost', text)}
+              onFocus={() => setFocusedInput('estimatedCost')}
+              onBlur={() => setFocusedInput(null)}
+              keyboardType="numeric"
+              returnKeyType="done"
+            />
+          </>
+        )}
       </>
     );
   };
 
-  const renderModalContent = () => (
-    <ScrollView 
-      ref={modalScrollViewRef}
-      style={styles.modalContent}
-      contentContainerStyle={[
-        styles.modalContentContainer,
-        { paddingBottom: keyboardHeight + 20 }
-      ]}
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-      overScrollMode="always"
-      scrollEventThrottle={16}
-      nestedScrollEnabled={true}
-      keyboardDismissMode="interactive"
-      automaticallyAdjustContentInsets={false}
-      contentInsetAdjustmentBehavior="never"
-    >
-      <Text style={styles.modalSubtitle}>{hospital.name}</Text>
-
-      <Text style={styles.label}>Buong Pangalan *</Text>
-      <TextInput
-        style={[styles.input, focusedInput === 'fullName' && styles.inputFocused]}
-        placeholder={hospital.type === 'dswd-burial' ? "Iyong buong pangalan" : "Pangalan ng pasyente"}
-        value={formData.fullName}
-        onChangeText={(text) => handleInputChange('fullName', text)}
-        onFocus={() => setFocusedInput('fullName')}
-        onBlur={() => setFocusedInput(null)}
-        returnKeyType="next"
-      />
-      
-      <Text style={styles.label}>Numero ng Telepono *</Text>
-      <TextInput
-        style={[styles.input, focusedInput === 'contactNumber' && styles.inputFocused]}
-        placeholder="Iyong mobile number"
-        value={formData.contactNumber}
-        onChangeText={(text) => handleInputChange('contactNumber', text)}
-        onFocus={() => setFocusedInput('contactNumber')}
-        onBlur={() => setFocusedInput(null)}
-        keyboardType="phone-pad"
-        returnKeyType="next"
-      />
-      
-      <Text style={styles.label}>Email Address</Text>
-      <TextInput
-        style={[styles.input, focusedInput === 'email' && styles.inputFocused]}
-        placeholder="Iyong email address"
-        value={formData.email}
-        onChangeText={(text) => handleInputChange('email', text)}
-        onFocus={() => setFocusedInput('email')}
-        onBlur={() => setFocusedInput(null)}
-        keyboardType="email-address"
-        returnKeyType="next"
-      />
-      
-      <Text style={styles.label}>Kompletong Address *</Text>
-      <TextInput
-        style={[styles.input, focusedInput === 'address' && styles.inputFocused]}
-        placeholder="Iyong kompletong address"
-        value={formData.address}
-        onChangeText={(text) => handleInputChange('address', text)}
-        onFocus={() => setFocusedInput('address')}
-        onBlur={() => setFocusedInput(null)}
-        returnKeyType="next"
-      />
-
-      {renderFormFields()}
-      
-      <Text style={styles.requirementsTitle}>Pakihanda ang mga sumusunod:</Text>
-      <View style={styles.requirementsList}>
-        {hospital.requirements.map((item, index) => (
-          <Text key={index} style={styles.requirementModalItem}>• {item}</Text>
-        ))}
-      </View>
-      
-      <Text style={styles.noteText}>
-        {hospital.type === 'extensive' || hospital.type === 'endorsement'
-          ? 'I-check ang status ng inyong application sa app within 2-3 working days.'
-          : hospital.type === 'guarantee'
-          ? 'Ang guarantee letter requests ay ipro-process at makikita sa app within 1-2 working days.'
-          : 'Maari ninyong i-check ang inyong application status sa app within 3-5 working days.'}
-      </Text>
-
-      <TouchableOpacity 
-        style={[styles.button, styles.submitButton, { backgroundColor: hospital.color || '#003580' }]}
-        onPress={handleSubmit}
-        disabled={isLoading}
+  const renderModalContent = () => {
+    const requirements = getCurrentRequirements();
+    
+    return (
+      <ScrollView 
+        ref={modalScrollViewRef}
+        style={styles.modalContent}
+        contentContainerStyle={[
+          styles.modalContentContainer,
+          { paddingBottom: keyboardHeight + 20 }
+        ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        {isLoading ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
+        <Text style={styles.modalSubtitle}>{hospital.name}</Text>
+
+        <Text style={styles.label}>Full Name *</Text>
+        <TextInput
+          style={[styles.input, focusedInput === 'fullName' && styles.inputFocused]}
+          placeholder={hospital.type === 'dswd-burial' ? "Your full name" : "Patient's name"}
+          value={formData.fullName}
+          onChangeText={(text) => handleInputChange('fullName', text)}
+          onFocus={() => setFocusedInput('fullName')}
+          onBlur={() => setFocusedInput(null)}
+          returnKeyType="next"
+        />
+        
+        <Text style={styles.label}>Contact Number *</Text>
+        <TextInput
+          style={[styles.input, focusedInput === 'contactNumber' && styles.inputFocused]}
+          placeholder="Your mobile number"
+          value={formData.contactNumber}
+          onChangeText={(text) => handleInputChange('contactNumber', text)}
+          onFocus={() => setFocusedInput('contactNumber')}
+          onBlur={() => setFocusedInput(null)}
+          keyboardType="phone-pad"
+          returnKeyType="next"
+        />
+        
+        <Text style={styles.label}>Email Address</Text>
+        <TextInput
+          style={[styles.input, focusedInput === 'email' && styles.inputFocused]}
+          placeholder="Your email address"
+          value={formData.email}
+          onChangeText={(text) => handleInputChange('email', text)}
+          onFocus={() => setFocusedInput('email')}
+          onBlur={() => setFocusedInput(null)}
+          keyboardType="email-address"
+          returnKeyType="next"
+        />
+        
+        <Text style={styles.label}>Complete Address *</Text>
+        <TextInput
+          style={[styles.input, focusedInput === 'address' && styles.inputFocused]}
+          placeholder="Your complete address"
+          value={formData.address}
+          onChangeText={(text) => handleInputChange('address', text)}
+          onFocus={() => setFocusedInput('address')}
+          onBlur={() => setFocusedInput(null)}
+          returnKeyType="next"
+        />
+
+        {renderFormFields()}
+        
+        {requirements && requirements.length > 0 && (
           <>
-            <FontAwesome5 name="paper-plane" size={16} color="#FFFFFF" />
-            <Text style={styles.buttonText}>I-submit ang Application</Text>
+            <Text style={styles.requirementsTitle}>Please prepare the following:</Text>
+            <View style={styles.requirementsList}>
+              {requirements.map((item, index) => (
+                <Text key={index} style={styles.requirementModalItem}>• {item}</Text>
+              ))}
+            </View>
           </>
         )}
-      </TouchableOpacity>
-    </ScrollView>
-  );
+        
+        <Text style={styles.noteText}>
+          {hospital.type === 'guarantee'
+            ? 'Hospital guarantee letters need to be reviewed and approved by the office.'
+            : 'You can check your application status in the app within 3-5 working days.'}
+        </Text>
+
+        <TouchableOpacity 
+          style={[styles.button, styles.submitButton, { backgroundColor: hospital.color || '#003580' }]}
+          onPress={handleSubmit}
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <>
+              <FontAwesome5 name="paper-plane" size={16} color="#FFFFFF" />
+              <Text style={styles.buttonText}>Submit Application</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -532,7 +477,6 @@ const AssistanceScreen = () => {
         }
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        overScrollMode="never"
       >
         <View style={styles.header}>
           <TouchableOpacity 
@@ -554,18 +498,16 @@ const AssistanceScreen = () => {
           
           <Text style={styles.programDescription}>
             {hospital.type === 'dswd-burial'
-              ? 'Tulong para sa funeral at burial expenses'
+              ? 'Assistance for funeral and burial expenses'
               : hospital.type === 'guarantee'
-              ? 'Serbisyo para sa hospital admission guarantee letter'
-              : hospital.type === 'endorsement'
-              ? 'Serbisyo para sa hospital referral at endorsement'
-              : 'Financial assistance para sa medical treatments at procedures'}
+              ? 'Service for hospital admission guarantee letter'
+              : 'Financial assistance for medical treatments and procedures'}
           </Text>
         </View>
 
-        {['medical-financial', 'endorsement'].includes(hospital.type) && (
+        {hospital.requirements && (hospital.requirements.inpatient || hospital.requirements.outpatient) && (
           <View style={styles.selectorContainer}>
-            <Text style={styles.selectorLabel}>Status ng Pasyente:</Text>
+            <Text style={styles.selectorLabel}>Patient Status:</Text>
             <View style={styles.selectorButtons}>
               {['outpatient', 'inpatient'].map((status) => (
                 <TouchableOpacity
@@ -590,8 +532,8 @@ const AssistanceScreen = () => {
         )}
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Mga Kailangang Dokumento:</Text>
-          {hospital.requirements.map((item, index) => (
+          <Text style={styles.sectionTitle}>Required Documents:</Text>
+          {getCurrentRequirements().map((item, index) => (
             <View key={index} style={styles.requirementItem}>
               <FontAwesome5 
                 name="check-circle" 
@@ -607,11 +549,9 @@ const AssistanceScreen = () => {
         <View style={styles.noteBox}>
           <FontAwesome5 name="info-circle" size={16} color="#003580" />
           <Text style={styles.noteText}>
-            {hospital.type === 'extensive' || hospital.type === 'endorsement'
-              ? 'Para sa mas kumpletong requirements, pumunta sa opisina para sa assistance sa documentation.'
-              : hospital.type === 'guarantee'
-              ? 'Ang hospital guarantee letters ay kailangang i-review at i-approve ng opisina.'
-              : 'Maghanda ng malinaw na scans o pictures ng lahat ng required documents.'}
+            {hospital.type === 'guarantee'
+              ? 'Hospital guarantee letters need to be reviewed and approved by the office.'
+              : 'Prepare clear scans or pictures of all required documents.'}
           </Text>
         </View>
 
@@ -621,7 +561,7 @@ const AssistanceScreen = () => {
             onPress={openContact}
           >
             <FontAwesome5 name="phone-alt" size={14} color="white" />
-            <Text style={styles.buttonText}>Tumawag para sa Assistance</Text>
+            <Text style={styles.buttonText}>Call for Assistance</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
@@ -635,12 +575,10 @@ const AssistanceScreen = () => {
             />
             <Text style={styles.buttonText}>
               {hospital.type === 'dswd-burial' 
-                ? 'Mag-apply para sa Burial Assistance' 
+                ? 'Apply for Burial Assistance' 
                 : hospital.type === 'guarantee'
-                ? 'Humiling ng Guarantee Letter'
-                : hospital.type === 'endorsement'
-                ? 'Humiling ng Hospital Endorsement'
-                : 'Mag-apply para sa Medical Assistance'}
+                ? 'Request Guarantee Letter'
+                : 'Apply for Medical Assistance'}
             </Text>
           </TouchableOpacity>
         </View>
