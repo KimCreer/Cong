@@ -10,7 +10,8 @@ import {
     Alert,
     Modal,
     Platform,
-    ScrollView
+    ScrollView,
+    TextInput
 } from "react-native";
 import { FontAwesome5, MaterialIcons, Feather } from "@expo/vector-icons";
 import { getFirestore, 
@@ -23,9 +24,11 @@ import { getFirestore,
          getDocs, 
          onSnapshot,
          updateDoc,
+         addDoc,
+         deleteDoc,
          serverTimestamp } from '@react-native-firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
-import { format } from 'date-fns';
+import { format, isSameDay, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth } from 'date-fns';
 
 const APPOINTMENT_TYPES = {
     COURTESY: { label: "Courtesy (VIP)", icon: "handshake", color: "#6c5ce7" },
@@ -48,8 +51,12 @@ const SORT_OPTIONS = [
 
 const TAB_OPTIONS = [
     { id: 'pending', label: 'Pending' },
-    { id: 'history', label: 'History' }
+    { id: 'history', label: 'History' },
+    { id: 'blocked', label: 'Blocked Dates' }
 ];
+
+const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const safeFormatDate = (dateValue, formatString, fallbackText = 'Not available') => {
     try {
@@ -89,6 +96,7 @@ const AppointmentsTab = () => {
     const [appointments, setAppointments] = useState([]);
     const [historyAppointments, setHistoryAppointments] = useState([]);
     const [filteredAppointments, setFilteredAppointments] = useState([]);
+    const [blockedDates, setBlockedDates] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [userCache, setUserCache] = useState({});
@@ -98,6 +106,10 @@ const AppointmentsTab = () => {
     const [showSortOptions, setShowSortOptions] = useState(false);
     const [showActionButtons, setShowActionButtons] = useState({});
     const [activeTab, setActiveTab] = useState('pending');
+    const [showBlockDateModal, setShowBlockDateModal] = useState(false);
+    const [newBlockedDate, setNewBlockedDate] = useState(new Date());
+    const [currentMonth, setCurrentMonth] = useState(new Date());
+    const [reason, setReason] = useState('');
 
     const db = getFirestore();
 
@@ -123,6 +135,26 @@ const AppointmentsTab = () => {
         } catch (error) {
             console.error("Error fetching user details:", error);
             return { firstName: 'Unknown', lastName: 'User', profileImage: null };
+        }
+    };
+
+    const fetchBlockedDates = async () => {
+        try {
+            const blockedDatesQuery = query(
+                collection(db, 'blockedDates'),
+                orderBy('date', 'asc')
+            );
+            
+            const snapshot = await getDocs(blockedDatesQuery);
+            const dates = snapshot.docs.map(doc => ({
+                id: doc.id,
+                date: doc.data().date.toDate(),
+                reason: doc.data().reason || 'No reason provided'
+            }));
+            setBlockedDates(dates);
+        } catch (error) {
+            console.error("Error fetching blocked dates:", error);
+            Alert.alert("Error", "Failed to load blocked dates");
         }
     };
 
@@ -288,7 +320,8 @@ const AppointmentsTab = () => {
 
     const handleScheduleCourtesy = (appointmentId) => {
         navigation.navigate('ScheduleCourtesy', { 
-            appointmentId
+            appointmentId,
+            blockedDates // Pass blocked dates to prevent scheduling on blocked dates
         });
     };
 
@@ -298,153 +331,150 @@ const AppointmentsTab = () => {
         });
     };
 
-    useEffect(() => {
-        fetchAppointments();
-        
-        const orderDirection = sortOption.id.includes('asc') ? 'asc' : 'desc';
-        const pendingQuery = query(
-            collection(db, 'appointments'),
-            where('status', '==', 'Pending'),
-            orderBy('createdAt', orderDirection)
-        );
-            
-        const historyQuery = query(
-            collection(db, 'appointments'),
-            where('status', 'in', ['Confirmed', 'Cancelled', 'Completed', 'Rejected']),
-            orderBy('updatedAt', 'desc')
-        );
-            
-        const unsubscribePending = onSnapshot(pendingQuery, async (snapshot) => {
-            const updatedAppointments = [];
-            
-            for (const docSnapshot of snapshot.docs) {
-                const appointmentData = docSnapshot.data();
-                let userDetails = { firstName: 'Unknown', lastName: 'User' };
-                
-                if (appointmentData.userId) {
-                    userDetails = await fetchUserDetails(appointmentData.userId);
-                }
-                
-                const typeKey = appointmentData.type?.replace(/ \(.*\)$/, '').toUpperCase() || 'OTHER';
-                const typeInfo = APPOINTMENT_TYPES[typeKey] || APPOINTMENT_TYPES.OTHER;
-                
-                const hasValidDate = appointmentData.date && 
-                                   !isNaN(new Date(appointmentData.date.toDate()).getTime());
-                const isDifferentFromCreated = hasValidDate && 
-                                             appointmentData.date.toDate().getTime() !== 
-                                             appointmentData.createdAt.toDate().getTime();
-                
-                updatedAppointments.push({
-                    id: docSnapshot.id,
-                    ...appointmentData,
-                    formattedDate: safeFormatDate(appointmentData.date, 'MMM dd, yyyy'),
-                    formattedTime: validateTime(appointmentData.time),
-                    formattedCreatedAt: safeFormatDate(
-                        appointmentData.createdAt, 
-                        'MMM dd, yyyy hh:mm a',
-                        'Recent'
-                    ),
-                    userFirstName: userDetails.firstName,
-                    userLastName: userDetails.lastName,
-                    userProfileImage: userDetails.profileImage,
-                    typeInfo: typeInfo,
-                    isCourtesy: appointmentData.isCourtesy || false,
-                    isScheduled: appointmentData.isCourtesy ? isDifferentFromCreated : hasValidDate
-                });
-            }
-            
-            setAppointments(updatedAppointments);
-            if (activeTab === 'pending') {
-                setFilteredAppointments(applyTypeFilter(updatedAppointments, selectedType));
-            }
-        }, error => {
-            console.error("Firestore snapshot error (pending):", error);
-            Alert.alert("Error", "Failed to sync pending appointments");
-        });
-        
-        const unsubscribeHistory = onSnapshot(historyQuery, async (snapshot) => {
-            const updatedAppointments = [];
-            
-            for (const docSnapshot of snapshot.docs) {
-                const appointmentData = docSnapshot.data();
-                let userDetails = { firstName: 'Unknown', lastName: 'User' };
-                
-                if (appointmentData.userId) {
-                    userDetails = await fetchUserDetails(appointmentData.userId);
-                }
-                
-                const typeKey = appointmentData.type?.replace(/ \(.*\)$/, '').toUpperCase() || 'OTHER';
-                const typeInfo = APPOINTMENT_TYPES[typeKey] || APPOINTMENT_TYPES.OTHER;
-                
-                const hasValidDate = appointmentData.date && 
-                                   !isNaN(new Date(appointmentData.date.toDate()).getTime());
-                const isDifferentFromCreated = hasValidDate && 
-                                             appointmentData.date.toDate().getTime() !== 
-                                             appointmentData.createdAt.toDate().getTime();
-                
-                updatedAppointments.push({
-                    id: docSnapshot.id,
-                    ...appointmentData,
-                    formattedDate: safeFormatDate(appointmentData.date, 'MMM dd, yyyy'),
-                    formattedTime: validateTime(appointmentData.time),
-                    formattedCreatedAt: safeFormatDate(
-                        appointmentData.createdAt, 
-                        'MMM dd, yyyy hh:mm a',
-                        'Recent'
-                    ),
-                    formattedUpdatedAt: safeFormatDate(
-                        appointmentData.updatedAt || appointmentData.createdAt,
-                        'MMM dd, yyyy hh:mm a',
-                        'Recent'
-                    ),
-                    userFirstName: userDetails.firstName,
-                    userLastName: userDetails.lastName,
-                    userProfileImage: userDetails.profileImage,
-                    typeInfo: typeInfo,
-                    isCourtesy: appointmentData.isCourtesy || false,
-                    isScheduled: appointmentData.isCourtesy ? isDifferentFromCreated : hasValidDate
-                });
-            }
-            
-            setHistoryAppointments(updatedAppointments);
-            if (activeTab === 'history') {
-                setFilteredAppointments(applyTypeFilter(updatedAppointments, selectedType));
-            }
-        }, error => {
-            console.error("Firestore snapshot error (history):", error);
-            Alert.alert("Error", "Failed to sync history appointments");
-        });
-        
-        return () => {
-            unsubscribePending();
-            unsubscribeHistory();
-        };
-    }, [sortOption]);
-
-    const handleTypeSelect = (type) => {
-        const newSelectedType = type === selectedType ? null : type;
-        setSelectedType(newSelectedType);
-        
-        if (activeTab === 'pending') {
-            setFilteredAppointments(applyTypeFilter(appointments, newSelectedType));
-        } else {
-            setFilteredAppointments(applyTypeFilter(historyAppointments, newSelectedType));
+    const handleBlockDate = async () => {
+        try {
+            await addDoc(collection(db, 'blockedDates'), {
+                date: newBlockedDate,
+                reason: reason || 'Admin blocked',
+                createdAt: serverTimestamp()
+            });
+            setShowBlockDateModal(false);
+            setReason('');
+            fetchBlockedDates();
+            Alert.alert("Success", "Date blocked successfully");
+        } catch (error) {
+            console.error("Error blocking date:", error);
+            Alert.alert("Error", "Failed to block date");
         }
-        setShowTypeFilter(false);
     };
 
-    const handleSortSelect = (option) => {
-        setSortOption(option);
-        setShowSortOptions(false);
+    const handleUnblockDate = async (dateId) => {
+        Alert.alert(
+            "Confirm Unblock",
+            "Are you sure you want to unblock this date?",
+            [
+                { text: "Cancel", style: "cancel" },
+                { 
+                    text: "Unblock", 
+                    onPress: async () => {
+                        try {
+                            await deleteDoc(doc(db, 'blockedDates', dateId));
+                            fetchBlockedDates();
+                            Alert.alert("Success", "Date unblocked");
+                        } catch (error) {
+                            console.error("Error unblocking date:", error);
+                            Alert.alert("Error", "Failed to unblock date");
+                        }
+                    },
+                    style: "destructive"
+                }
+            ]
+        );
     };
 
-    const handleTabSelect = (tabId) => {
-        setActiveTab(tabId);
-        if (tabId === 'pending') {
-            setFilteredAppointments(applyTypeFilter(appointments, selectedType));
-        } else {
-            setFilteredAppointments(applyTypeFilter(historyAppointments, selectedType));
-        }
+    const isDateBlocked = (date) => {
+        return blockedDates.some(blocked => isSameDay(blocked.date, date));
+    };
+
+    const navigateMonth = (direction) => {
+        setCurrentMonth(direction === 'next' 
+            ? addMonths(currentMonth, 1) 
+            : subMonths(currentMonth, 1)
+        );
+    };
+
+    const renderCalendar = () => {
+        const monthStart = startOfMonth(currentMonth);
+        const monthEnd = endOfMonth(currentMonth);
+        const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
+        
+        // Get the day of the week for the first day of the month (0-6)
+        const startDay = monthStart.getDay();
+        
+        // Create empty slots for days before the first day of the month
+        const emptyStartDays = Array(startDay).fill(null);
+        
+        return (
+            <View style={styles.calendarContainer}>
+                <View style={styles.calendarHeader}>
+                    <TouchableOpacity onPress={() => navigateMonth('prev')}>
+                        <FontAwesome5 name="chevron-left" size={20} color="#003366" />
+                    </TouchableOpacity>
+                    
+                    <Text style={styles.calendarTitle}>
+                        {MONTHS[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                    </Text>
+                    
+                    <TouchableOpacity onPress={() => navigateMonth('next')}>
+                        <FontAwesome5 name="chevron-right" size={20} color="#003366" />
+                    </TouchableOpacity>
+                </View>
+                
+                <View style={styles.daysOfWeek}>
+                    {DAYS_OF_WEEK.map(day => (
+                        <Text key={day} style={styles.dayOfWeekText}>{day}</Text>
+                    ))}
+                </View>
+                
+                <View style={styles.calendarGrid}>
+                    {emptyStartDays.map((_, index) => (
+                        <View key={`empty-${index}`} style={styles.calendarDayEmpty} />
+                    ))}
+                    
+                    {daysInMonth.map(day => {
+                        const isBlocked = isDateBlocked(day);
+                        const isSelected = isSameDay(day, newBlockedDate);
+                        const isCurrentMonth = isSameMonth(day, currentMonth);
+                        
+                        return (
+                            <TouchableOpacity
+                                key={day.toString()}
+                                style={[
+                                    styles.calendarDay,
+                                    isBlocked && styles.blockedDay,
+                                    isSelected && styles.selectedDay,
+                                    !isCurrentMonth && styles.nonMonthDay
+                                ]}
+                                onPress={() => setNewBlockedDate(day)}
+                                disabled={isBlocked}
+                            >
+                                <Text style={[
+                                    styles.dayText,
+                                    isBlocked && styles.blockedDayText,
+                                    isSelected && styles.selectedDayText,
+                                    !isCurrentMonth && styles.nonMonthDayText
+                                ]}>
+                                    {day.getDate()}
+                                </Text>
+                                {isBlocked && (
+                                    <View style={styles.blockedIndicator} />
+                                )}
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            </View>
+        );
+    };
+
+    const BlockedDateItem = ({ date, reason, onRemove }) => {
+        return (
+            <View style={styles.blockedDateItem}>
+                <View style={styles.blockedDateInfo}>
+                    <FontAwesome5 name="calendar-times" size={18} color="#dc3545" />
+                    <Text style={styles.blockedDateText}>
+                        {safeFormatDate(date, 'MMMM dd, yyyy')}
+                    </Text>
+                    <Text style={styles.blockedReasonText}>{reason}</Text>
+                </View>
+                <TouchableOpacity 
+                    style={styles.unblockButton}
+                    onPress={onRemove}
+                >
+                    <FontAwesome5 name="times" size={16} color="#dc3545" />
+                </TouchableOpacity>
+            </View>
+        );
     };
 
     const AppointmentCard = ({ appointment, isHistory = false }) => {
@@ -636,6 +666,172 @@ const AppointmentsTab = () => {
         );
     };
 
+    useEffect(() => {
+        fetchAppointments();
+        fetchBlockedDates();
+        
+        const orderDirection = sortOption.id.includes('asc') ? 'asc' : 'desc';
+        const pendingQuery = query(
+            collection(db, 'appointments'),
+            where('status', '==', 'Pending'),
+            orderBy('createdAt', orderDirection)
+        );
+            
+        const historyQuery = query(
+            collection(db, 'appointments'),
+            where('status', 'in', ['Confirmed', 'Cancelled', 'Completed', 'Rejected']),
+            orderBy('updatedAt', 'desc')
+        );
+            
+        const unsubscribePending = onSnapshot(pendingQuery, async (snapshot) => {
+            const updatedAppointments = [];
+            
+            for (const docSnapshot of snapshot.docs) {
+                const appointmentData = docSnapshot.data();
+                let userDetails = { firstName: 'Unknown', lastName: 'User' };
+                
+                if (appointmentData.userId) {
+                    userDetails = await fetchUserDetails(appointmentData.userId);
+                }
+                
+                const typeKey = appointmentData.type?.replace(/ \(.*\)$/, '').toUpperCase() || 'OTHER';
+                const typeInfo = APPOINTMENT_TYPES[typeKey] || APPOINTMENT_TYPES.OTHER;
+                
+                const hasValidDate = appointmentData.date && 
+                                   !isNaN(new Date(appointmentData.date.toDate()).getTime());
+                const isDifferentFromCreated = hasValidDate && 
+                                             appointmentData.date.toDate().getTime() !== 
+                                             appointmentData.createdAt.toDate().getTime();
+                
+                updatedAppointments.push({
+                    id: docSnapshot.id,
+                    ...appointmentData,
+                    formattedDate: safeFormatDate(appointmentData.date, 'MMM dd, yyyy'),
+                    formattedTime: validateTime(appointmentData.time),
+                    formattedCreatedAt: safeFormatDate(
+                        appointmentData.createdAt, 
+                        'MMM dd, yyyy hh:mm a',
+                        'Recent'
+                    ),
+                    userFirstName: userDetails.firstName,
+                    userLastName: userDetails.lastName,
+                    userProfileImage: userDetails.profileImage,
+                    typeInfo: typeInfo,
+                    isCourtesy: appointmentData.isCourtesy || false,
+                    isScheduled: appointmentData.isCourtesy ? isDifferentFromCreated : hasValidDate
+                });
+            }
+            
+            setAppointments(updatedAppointments);
+            if (activeTab === 'pending') {
+                setFilteredAppointments(applyTypeFilter(updatedAppointments, selectedType));
+            }
+        }, error => {
+            console.error("Firestore snapshot error (pending):", error);
+            Alert.alert("Error", "Failed to sync pending appointments");
+        });
+        
+        const unsubscribeHistory = onSnapshot(historyQuery, async (snapshot) => {
+            const updatedAppointments = [];
+            
+            for (const docSnapshot of snapshot.docs) {
+                const appointmentData = docSnapshot.data();
+                let userDetails = { firstName: 'Unknown', lastName: 'User' };
+                
+                if (appointmentData.userId) {
+                    userDetails = await fetchUserDetails(appointmentData.userId);
+                }
+                
+                const typeKey = appointmentData.type?.replace(/ \(.*\)$/, '').toUpperCase() || 'OTHER';
+                const typeInfo = APPOINTMENT_TYPES[typeKey] || APPOINTMENT_TYPES.OTHER;
+                
+                const hasValidDate = appointmentData.date && 
+                                   !isNaN(new Date(appointmentData.date.toDate()).getTime());
+                const isDifferentFromCreated = hasValidDate && 
+                                             appointmentData.date.toDate().getTime() !== 
+                                             appointmentData.createdAt.toDate().getTime();
+                
+                updatedAppointments.push({
+                    id: docSnapshot.id,
+                    ...appointmentData,
+                    formattedDate: safeFormatDate(appointmentData.date, 'MMM dd, yyyy'),
+                    formattedTime: validateTime(appointmentData.time),
+                    formattedCreatedAt: safeFormatDate(
+                        appointmentData.createdAt, 
+                        'MMM dd, yyyy hh:mm a',
+                        'Recent'
+                    ),
+                    formattedUpdatedAt: safeFormatDate(
+                        appointmentData.updatedAt || appointmentData.createdAt,
+                        'MMM dd, yyyy hh:mm a',
+                        'Recent'
+                    ),
+                    userFirstName: userDetails.firstName,
+                    userLastName: userDetails.lastName,
+                    userProfileImage: userDetails.profileImage,
+                    typeInfo: typeInfo,
+                    isCourtesy: appointmentData.isCourtesy || false,
+                    isScheduled: appointmentData.isCourtesy ? isDifferentFromCreated : hasValidDate
+                });
+            }
+            
+            setHistoryAppointments(updatedAppointments);
+            if (activeTab === 'history') {
+                setFilteredAppointments(applyTypeFilter(updatedAppointments, selectedType));
+            }
+        }, error => {
+            console.error("Firestore snapshot error (history):", error);
+            Alert.alert("Error", "Failed to sync history appointments");
+        });
+        
+        const unsubscribeBlockedDates = onSnapshot(
+            query(collection(db, 'blockedDates'), orderBy('date', 'asc')),
+            (snapshot) => {
+                const dates = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    date: doc.data().date.toDate(),
+                    reason: doc.data().reason || 'No reason provided'
+                }));
+                setBlockedDates(dates);
+            },
+            (error) => {
+                console.error("Blocked dates snapshot error:", error);
+            }
+        );
+        
+        return () => {
+            unsubscribePending();
+            unsubscribeHistory();
+            unsubscribeBlockedDates();
+        };
+    }, [sortOption]);
+
+    const handleTypeSelect = (type) => {
+        const newSelectedType = type === selectedType ? null : type;
+        setSelectedType(newSelectedType);
+        
+        if (activeTab === 'pending') {
+            setFilteredAppointments(applyTypeFilter(appointments, newSelectedType));
+        } else {
+            setFilteredAppointments(applyTypeFilter(historyAppointments, newSelectedType));
+        }
+        setShowTypeFilter(false);
+    };
+
+    const handleSortSelect = (option) => {
+        setSortOption(option);
+        setShowSortOptions(false);
+    };
+
+    const handleTabSelect = (tabId) => {
+        setActiveTab(tabId);
+        if (tabId === 'pending') {
+            setFilteredAppointments(applyTypeFilter(appointments, selectedType));
+        } else {
+            setFilteredAppointments(applyTypeFilter(historyAppointments, selectedType));
+        }
+    };
+
     return (
         <View style={styles.container}>
             {/* Tab Selector */}
@@ -659,27 +855,29 @@ const AppointmentsTab = () => {
                 ))}
             </View>
 
-            <View style={styles.filterBar}>
-                <TouchableOpacity 
-                    style={styles.filterButton}
-                    onPress={() => setShowTypeFilter(true)}
-                >
-                    <Feather name="filter" size={18} color="#003366" />
-                    <Text style={styles.filterButtonText}>
-                        {selectedType || "All Types"}
-                    </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                    style={styles.filterButton}
-                    onPress={() => setShowSortOptions(true)}
-                >
-                    <Feather name={sortOption.icon} size={18} color="#003366" />
-                    <Text style={styles.filterButtonText}>
-                        {sortOption.label}
-                    </Text>
-                </TouchableOpacity>
-            </View>
+            {activeTab !== 'blocked' && (
+                <View style={styles.filterBar}>
+                    <TouchableOpacity 
+                        style={styles.filterButton}
+                        onPress={() => setShowTypeFilter(true)}
+                    >
+                        <Feather name="filter" size={18} color="#003366" />
+                        <Text style={styles.filterButtonText}>
+                            {selectedType || "All Types"}
+                        </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                        style={styles.filterButton}
+                        onPress={() => setShowSortOptions(true)}
+                    >
+                        <Feather name={sortOption.icon} size={18} color="#003366" />
+                        <Text style={styles.filterButtonText}>
+                            {sortOption.label}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            )}
 
             {loading && !refreshing ? (
                 <View style={styles.loadingContainer}>
@@ -687,7 +885,7 @@ const AppointmentsTab = () => {
                     <Text style={styles.loadingText}>Loading appointments...</Text>
                 </View>
             ) : (
-                <ScrollView style={styles.scrollContainer}>
+                <>
                     {activeTab === 'pending' ? (
                         <FlatList
                             data={filteredAppointments}
@@ -713,7 +911,7 @@ const AppointmentsTab = () => {
                             contentContainerStyle={filteredAppointments.length === 0 ? styles.emptyListContainer : styles.listContainer}
                             scrollEnabled={false}
                         />
-                    ) : (
+                    ) : activeTab === 'history' ? (
                         <FlatList
                             data={filteredAppointments}
                             keyExtractor={item => item.id}
@@ -738,8 +936,40 @@ const AppointmentsTab = () => {
                             contentContainerStyle={filteredAppointments.length === 0 ? styles.emptyListContainer : styles.listContainer}
                             scrollEnabled={false}
                         />
+                    ) : (
+                        <View style={styles.blockedDatesContainer}>
+                            <TouchableOpacity 
+                                style={styles.addBlockedDateButton}
+                                onPress={() => {
+                                    setNewBlockedDate(new Date());
+                                    setShowBlockDateModal(true);
+                                }}
+                            >
+                                <FontAwesome5 name="plus" size={16} color="#fff" />
+                                <Text style={styles.addBlockedDateButtonText}>Block New Date</Text>
+                            </TouchableOpacity>
+                            
+                            {blockedDates.length > 0 ? (
+                                <FlatList
+                                    data={blockedDates}
+                                    keyExtractor={item => item.id}
+                                    renderItem={({ item }) => (
+                                        <BlockedDateItem 
+                                            date={item.date}
+                                            reason={item.reason}
+                                            onRemove={() => handleUnblockDate(item.id)}
+                                        />
+                                    )}
+                                    contentContainerStyle={styles.blockedDatesList}
+                                />
+                            ) : (
+                                <View style={styles.emptyContainer}>
+                                    <Text style={styles.emptyText}>No dates currently blocked</Text>
+                                </View>
+                            )}
+                        </View>
                     )}
-                </ScrollView>
+                </>
             )}
             
             <Modal
@@ -831,6 +1061,49 @@ const AppointmentsTab = () => {
                         >
                             <Text style={styles.modalCloseButtonText}>Close</Text>
                         </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Block Date Modal */}
+            <Modal
+                visible={showBlockDateModal}
+                transparent={true}
+                animationType="slide"
+                onRequestClose={() => setShowBlockDateModal(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <Text style={styles.modalTitle}>Block Appointment Date</Text>
+                        
+                        {renderCalendar()}
+                        
+                        <TextInput
+                            style={styles.reasonInput}
+                            placeholder="Reason for blocking (optional)"
+                            value={reason}
+                            onChangeText={setReason}
+                        />
+                        
+                        <View style={styles.modalButtonRow}>
+                            <TouchableOpacity 
+                                style={[styles.modalButton, styles.cancelButton]}
+                                onPress={() => {
+                                    setShowBlockDateModal(false);
+                                    setReason('');
+                                }}
+                            >
+                                <Text style={styles.modalButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                            
+                            <TouchableOpacity 
+                                style={[styles.modalButton, styles.confirmButton]}
+                                onPress={handleBlockDate}
+                                disabled={isDateBlocked(newBlockedDate)}
+                            >
+                                <Text style={styles.modalButtonText}>Block Date</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
             </Modal>
@@ -1055,7 +1328,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     modalContent: {
-        width: '80%',
+        width: '90%',
         backgroundColor: '#fff',
         borderRadius: 10,
         padding: 20,
@@ -1102,6 +1375,158 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     modalCloseButtonText: {
+        color: '#fff',
+        fontWeight: '600',
+    },
+    blockedDatesContainer: {
+        flex: 1,
+        padding: 15,
+    },
+    addBlockedDateButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#dc3545',
+        padding: 12,
+        borderRadius: 6,
+        marginBottom: 15,
+    },
+    addBlockedDateButtonText: {
+        color: '#fff',
+        fontWeight: '600',
+        marginLeft: 8,
+    },
+    blockedDatesList: {
+        paddingBottom: 20,
+    },
+    blockedDateItem: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        backgroundColor: '#fff',
+        padding: 15,
+        borderRadius: 8,
+        marginBottom: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    blockedDateInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    blockedDateText: {
+        marginLeft: 10,
+        marginRight: 15,
+        color: '#333',
+        fontWeight: '500',
+    },
+    blockedReasonText: {
+        color: '#666',
+        fontStyle: 'italic',
+    },
+    unblockButton: {
+        padding: 8,
+    },
+    calendarContainer: {
+        marginBottom: 20,
+    },
+    calendarHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 15,
+    },
+    calendarTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#003366',
+    },
+    daysOfWeek: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 10,
+        paddingHorizontal: 1,
+    },
+    dayOfWeekText: {
+        flex: 1,
+        textAlign: 'center',
+        fontWeight: '600',
+        color: '#666',
+    },
+    calendarGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+    },
+    calendarDay: {
+        width: `${100 / 7}%`,
+        aspectRatio: 1, // makes square
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 20,
+        padding:10,
+    },
+    calendarDayEmpty: {
+        width: `${100 / 7}%`,
+        aspectRatio: 1,
+    },
+    dayText: {
+        fontSize: 16,
+        color: '#333',
+    },
+    blockedDay: {
+        backgroundColor: '#ffebee',
+    },
+    blockedDayText: {
+        color: '#b71c1c',
+    },
+    selectedDay: {
+        backgroundColor: '#003366',
+    },
+    selectedDayText: {
+        color: '#fff',
+    },
+    nonMonthDay: {
+        opacity: 0.3,
+    },
+    nonMonthDayText: {
+        color: '#999',
+    },
+    blockedIndicator: {
+        position: 'absolute',
+        top: 2,
+        right: 2,
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#dc3545',
+    },
+    reasonInput: {
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRadius: 6,
+        padding: 12,
+        marginBottom: 15,
+    },
+    modalButtonRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+    modalButton: {
+        padding: 12,
+        borderRadius: 6,
+        width: '48%',
+        alignItems: 'center',
+    },
+    cancelButton: {
+        backgroundColor: '#6c757d',
+    },
+    confirmButton: {
+        backgroundColor: '#dc3545',
+    },
+    modalButtonText: {
         color: '#fff',
         fontWeight: '600',
     },

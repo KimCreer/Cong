@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from "react";
 import {
   View,
@@ -20,6 +19,7 @@ import {
 import { FontAwesome5 } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from 'expo-image-picker';
+import { getFirestore, collection, query, where, getDocs } from '@react-native-firebase/firestore';
 
 // Date Utilities with proper formatting
 const formatDate = (date, formatStr) => {
@@ -105,7 +105,7 @@ const WORKING_HOURS = {
 };
 
 // WeekCalendar component
-const WeekCalendar = ({ selectedDate, onSelectDate, existingAppointments, currentUserId }) => {
+const WeekCalendar = ({ selectedDate, onSelectDate, existingAppointments, currentUserId, blockedDates, onBlockedDateTap }) => {
   const today = new Date();
   const days = [];
   
@@ -138,6 +138,11 @@ const WeekCalendar = ({ selectedDate, onSelectDate, existingAppointments, curren
     });
   };
 
+  const isDateBlocked = (date) => {
+    if (!blockedDates || !date) return false;
+    return blockedDates.some(blockedDate => isSameDay(blockedDate.date, date));
+  };
+
   return (
     <View style={styles.weekCalendar}>
       {days.map((date) => {
@@ -146,7 +151,7 @@ const WeekCalendar = ({ selectedDate, onSelectDate, existingAppointments, curren
         const dayName = formatDate(date, 'EEE');
         const dayNumber = formatDate(date, 'd');
         const isToday = isSameDay(date, today);
-        const isUnavailable = isWeekend(date) || isHoliday(date) || isPastDate(date);
+        const isUnavailable = isWeekend(date) || isHoliday(date) || isPastDate(date) || isDateBlocked(date);
         const hasAppointment = hasAppointmentOnDay(date);
 
         return (
@@ -159,8 +164,16 @@ const WeekCalendar = ({ selectedDate, onSelectDate, existingAppointments, curren
               isUnavailable && styles.unavailableDay,
               hasAppointment && styles.bookedDay
             ]}
-            onPress={() => !isUnavailable && !hasAppointment && onSelectDate(dateStr)}
-            disabled={isUnavailable || hasAppointment}
+            onPress={() => {
+              if (isUnavailable) {
+                if (isDateBlocked(date)) {
+                  onBlockedDateTap(date);
+                }
+              } else if (!hasAppointment) {
+                onSelectDate(dateStr);
+              }
+            }}
+            disabled={hasAppointment}
           >
             <Text style={[
               styles.dayName, 
@@ -179,7 +192,10 @@ const WeekCalendar = ({ selectedDate, onSelectDate, existingAppointments, curren
             {hasAppointment && !isUnavailable && (
               <Text style={styles.unavailableText}>Booked</Text>
             )}
-            {isUnavailable && !isWeekend(date) && !isHoliday(date) && (
+            {isUnavailable && !isWeekend(date) && !isHoliday(date) && isDateBlocked(date) && (
+              <Text style={styles.unavailableText}>Blocked</Text>
+            )}
+            {isUnavailable && !isWeekend(date) && !isHoliday(date) && !isDateBlocked(date) && (
               <Text style={styles.unavailableText}>Past</Text>
             )}
             {isUnavailable && (isWeekend(date) || isHoliday(date)) && (
@@ -193,7 +209,7 @@ const WeekCalendar = ({ selectedDate, onSelectDate, existingAppointments, curren
 };
 
 // MonthCalendar component
-const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, currentUserId }) => {
+const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, currentUserId, blockedDates, onBlockedDateTap }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const today = new Date();
   
@@ -231,6 +247,11 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
     });
   };
   
+  const isDateBlocked = (date) => {
+    if (!blockedDates || !date) return false;
+    return blockedDates.some(blockedDate => isSameDay(blockedDate.date, date));
+  };
+  
   const renderDay = (date, index) => {
     if (!date) return <View key={`empty-${index}`} style={styles.monthEmptyDay} />;
     
@@ -239,7 +260,7 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
     const dayNumber = formatDate(date, 'd');
     const isToday = isSameDay(date, today);
     const isWeekday = date.getDay() >= 1 && date.getDay() <= 5;
-    const isUnavailable = !isWeekday || isHoliday(date) || isPastDate(date);
+    const isUnavailable = !isWeekday || isHoliday(date) || isPastDate(date) || isDateBlocked(date);
     const hasAppointment = hasAppointmentOnDay(date);
     
     return (
@@ -252,8 +273,16 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
           isUnavailable && styles.unavailableDay,
           hasAppointment && styles.bookedDay
         ]}
-        onPress={() => !isUnavailable && !hasAppointment && onSelectDate(dateStr)}
-        disabled={isUnavailable || hasAppointment}
+        onPress={() => {
+          if (isUnavailable) {
+            if (isDateBlocked(date)) {
+              onBlockedDateTap(date);
+            }
+          } else if (!hasAppointment) {
+            onSelectDate(dateStr);
+          }
+        }}
+        disabled={hasAppointment}
       >
         <Text style={[
           styles.monthDayNumber, 
@@ -267,7 +296,10 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
             •
           </Text>
         )}
-        {isUnavailable && !isWeekend(date) && (
+        {isUnavailable && isDateBlocked(date) && (
+          <Text style={[styles.unavailableText, { fontSize: 8 }]}>Blocked</Text>
+        )}
+        {isUnavailable && !isDateBlocked(date) && !isWeekend(date) && (
           <Text style={[styles.unavailableText, { fontSize: 8 }]}>Unavail</Text>
         )}
       </TouchableOpacity>
@@ -305,6 +337,7 @@ const MonthCalendar = ({ selectedDate, onSelectDate, existingAppointments, curre
     </View>
   );
 };
+
 const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppointments = [], currentUserId }) => {
   const scrollViewRef = useRef(null);
   const [formData, setFormData] = useState({
@@ -329,9 +362,13 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
     isUploading: false,
     isLoading: false,
     calendarView: 'week',
-    currentUpload: null
+    currentUpload: null,
+    blockedDates: [],
+    showBlockedReason: false,
+    selectedBlockedDate: null
   });
 
+  const db = getFirestore();
   const appointmentTypes = [
     { id: 1, name: "Courtesy (VIP)", icon: "handshake" },
     { id: 2, name: "Finance (Medical)", icon: "file-medical" },
@@ -376,6 +413,36 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
     }
   }, [initialData]);
 
+  // Fetch blocked dates on mount
+  useEffect(() => {
+    const fetchBlockedDates = async () => {
+      try {
+        const blockedDatesQuery = query(
+          collection(db, 'blockedDates'),
+          where('date', '>=', new Date())
+        );
+        
+        const snapshot = await getDocs(blockedDatesQuery);
+        const dates = snapshot.docs.map(doc => ({
+          id: doc.id,
+          date: doc.data().date.toDate(),
+          reason: doc.data().reason || 'No reason provided'
+        }));
+        
+        setUiState(prev => ({
+          ...prev,
+          blockedDates: dates
+        }));
+      } catch (error) {
+        console.error("Error fetching blocked dates:", error);
+      }
+    };
+
+    if (visible) {
+      fetchBlockedDates();
+    }
+  }, [visible]);
+
   // Request permissions on mount
   useEffect(() => {
     (async () => {
@@ -408,7 +475,10 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
       isUploading: false,
       isLoading: false,
       calendarView: 'week',
-      currentUpload: null
+      currentUpload: null,
+      blockedDates: [],
+      showBlockedReason: false,
+      selectedBlockedDate: null
     });
   };
 
@@ -418,6 +488,14 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
 
   const handleUiChange = (field, value) => {
     setUiState(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleBlockedDateTap = (date) => {
+    const blockedDate = uiState.blockedDates.find(d => isSameDay(d.date, date));
+    if (blockedDate) {
+      handleUiChange('selectedBlockedDate', blockedDate);
+      handleUiChange('showBlockedReason', true);
+    }
   };
 
   // Form Validation
@@ -451,6 +529,16 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
         return false;
       }
       
+      // Check if date is blocked
+      const isBlocked = uiState.blockedDates.some(blockedDate => 
+        isSameDay(blockedDate.date, dateObj)
+      );
+      
+      if (isBlocked) {
+        Alert.alert("Error", "The selected date is blocked. Please choose another date.");
+        return false;
+      }
+      
       if (!formData.time) {
         Alert.alert("Error", "Please select a time");
         return false;
@@ -474,6 +562,7 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
     
     return true;
   };
+
   // Form Submission
   const handleSubmit = async () => {
     if (!validateForm()) return;
@@ -550,6 +639,16 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
     
     if (isHoliday(currentDate)) {
       Alert.alert("Holiday", "Selected date is a holiday. Please choose another date.");
+      return;
+    }
+    
+    // Check if date is blocked
+    const isBlocked = uiState.blockedDates.some(blockedDate => 
+      isSameDay(blockedDate.date, currentDate)
+    );
+    
+    if (isBlocked) {
+      Alert.alert("Blocked Date", "The selected date is blocked. Please choose another date.");
       return;
     }
     
@@ -732,6 +831,8 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
             }}
             existingAppointments={existingAppointments}
             currentUserId={currentUserId}
+            blockedDates={uiState.blockedDates}
+            onBlockedDateTap={handleBlockedDateTap}
           />
         ) : (
           <MonthCalendar
@@ -743,6 +844,8 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
             }}
             existingAppointments={existingAppointments}
             currentUserId={currentUserId}
+            blockedDates={uiState.blockedDates}
+            onBlockedDateTap={handleBlockedDateTap}
           />
         )}
       </View>
@@ -942,6 +1045,29 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
                   <Text style={styles.sectionSubtitle}>Attach any relevant files</Text>
                   {renderImageSection(formData.imageUri, () => selectImage('document'), "paperclip", "Document")}
                 </View>
+
+                {/* Blocked Date Reason Modal */}
+                <Modal
+                  visible={uiState.showBlockedReason}
+                  transparent
+                  animationType="fade"
+                  onRequestClose={() => handleUiChange('showBlockedReason', false)}
+                >
+                  <View style={styles.blockedReasonModal}>
+                    <View style={styles.blockedReasonContainer}>
+                      <Text style={styles.blockedReasonTitle}>Date Blocked</Text>
+                      <Text style={styles.blockedReasonText}>
+                        {uiState.selectedBlockedDate?.reason || 'No reason provided'}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.blockedReasonButton}
+                        onPress={() => handleUiChange('showBlockedReason', false)}
+                      >
+                        <Text style={styles.blockedReasonButtonText}>OK</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </Modal>
 
                 {/* Submit Button */}
                 <TouchableOpacity
@@ -1357,6 +1483,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
     opacity: 0.6,
   },
+  bookedDay: {
+    backgroundColor: '#FFEBEE',
+  },
   dayName: {
     fontSize: 12,
     color: '#333',
@@ -1437,6 +1566,43 @@ const styles = StyleSheet.create({
   monthDayNumber: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  // Blocked reason modal styles
+  blockedReasonModal: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  blockedReasonContainer: {
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    padding: 20,
+    width: '80%',
+  },
+  blockedReasonTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#F44336',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  blockedReasonText: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  blockedReasonButton: {
+    backgroundColor: '#003580',
+    borderRadius: 5,
+    padding: 10,
+    alignItems: 'center',
+  },
+  blockedReasonButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 
