@@ -30,66 +30,30 @@ import { getFirestore,
 import { useNavigation } from '@react-navigation/native';
 import { format, isSameDay, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth } from 'date-fns';
 
-const APPOINTMENT_TYPES = {
-    COURTESY: { label: "Courtesy (VIP)", icon: "handshake", color: "#6c5ce7" },
-    FINANCE: { label: "Finance/Medical", icon: "file-invoice-dollar", color: "#e84393" },
-    OTHER: { label: "Other", icon: "question-circle", color: "#636e72" }
-};
+// Import components
+import AppointmentCard from './appointments/components/AppointmentCard';
+import BlockedDateItem from './appointments/components/BlockedDateItem';
+import Calendar from './appointments/components/Calendar';
 
-const STATUS_COLORS = {
-    Pending: "#FFA000",
-    Confirmed: "#28a745",
-    Cancelled: "#dc3545",
-    Completed: "#007bff",
-    Rejected: "#6c757d"
-};
+// Import constants
+import { 
+    APPOINTMENT_TYPES, 
+    STATUS_COLORS, 
+    SORT_OPTIONS, 
+    TAB_OPTIONS 
+} from './appointments/constants';
 
-const SORT_OPTIONS = [
-    { id: 'date_asc', label: 'Time (Earliest First)', icon: 'arrow-down' },
-    { id: 'date_desc', label: 'Time (Latest First)', icon: 'arrow-up' }
-];
+// Import utilities
+import { 
+    safeFormatDate, 
+    validateTime, 
+    isDateInPast, 
+    isDateBlocked, 
+    isDateSelectable 
+} from './appointments/utils/dateUtils';
 
-const TAB_OPTIONS = [
-    { id: 'pending', label: 'Pending' },
-    { id: 'history', label: 'History' },
-    { id: 'blocked', label: 'Blocked Dates' }
-];
-
-const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-
-const safeFormatDate = (dateValue, formatString, fallbackText = 'Not available') => {
-    try {
-        if (dateValue && typeof dateValue.toDate === 'function') {
-            return format(dateValue.toDate(), formatString);
-        }
-        if (dateValue instanceof Date) {
-            return format(dateValue, formatString);
-        }
-        if (typeof dateValue === 'number') {
-            return format(new Date(dateValue), formatString);
-        }
-        if (typeof dateValue === 'string') {
-            const parsedDate = new Date(dateValue);
-            if (!isNaN(parsedDate.getTime())) {
-                return format(parsedDate, formatString);
-            }
-        }
-        return fallbackText;
-    } catch (error) {
-        console.log("Date formatting error:", error, "for value:", dateValue);
-        return fallbackText;
-    }
-};
-
-const validateTime = (timeValue) => {
-    if (!timeValue) return "Not scheduled";
-    if (typeof timeValue !== 'string') return "Invalid time";
-    if (/^([0-1]?[0-9]|2[0-3]):[0-5][0-9] [AP]M$/i.test(timeValue)) {
-        return timeValue;
-    }
-    return "Invalid time format";
-};
+// Import styles
+import { styles } from './appointments/styles/AppointmentsTab.styles';
 
 const AppointmentsTab = () => {
     const navigation = useNavigation();
@@ -319,9 +283,14 @@ const AppointmentsTab = () => {
     };
 
     const handleScheduleCourtesy = (appointmentId) => {
+        const serializedBlockedDates = blockedDates.map(date => ({
+            ...date,
+            date: date.date.toISOString()
+        }));
+
         navigation.navigate('ScheduleCourtesy', { 
             appointmentId,
-            blockedDates // Pass blocked dates to prevent scheduling on blocked dates
+            blockedDates: serializedBlockedDates
         });
     };
 
@@ -372,297 +341,10 @@ const AppointmentsTab = () => {
         );
     };
 
-    const isDateBlocked = (date) => {
-        return blockedDates.some(blocked => isSameDay(blocked.date, date));
-    };
-
     const navigateMonth = (direction) => {
         setCurrentMonth(direction === 'next' 
             ? addMonths(currentMonth, 1) 
             : subMonths(currentMonth, 1)
-        );
-    };
-
-    const renderCalendar = () => {
-        const monthStart = startOfMonth(currentMonth);
-        const monthEnd = endOfMonth(currentMonth);
-        const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
-        
-        // Get the day of the week for the first day of the month (0-6)
-        const startDay = monthStart.getDay();
-        
-        // Create empty slots for days before the first day of the month
-        const emptyStartDays = Array(startDay).fill(null);
-        
-        return (
-            <View style={styles.calendarContainer}>
-                <View style={styles.calendarHeader}>
-                    <TouchableOpacity onPress={() => navigateMonth('prev')}>
-                        <FontAwesome5 name="chevron-left" size={20} color="#003366" />
-                    </TouchableOpacity>
-                    
-                    <Text style={styles.calendarTitle}>
-                        {MONTHS[currentMonth.getMonth()]} {currentMonth.getFullYear()}
-                    </Text>
-                    
-                    <TouchableOpacity onPress={() => navigateMonth('next')}>
-                        <FontAwesome5 name="chevron-right" size={20} color="#003366" />
-                    </TouchableOpacity>
-                </View>
-                
-                <View style={styles.daysOfWeek}>
-                    {DAYS_OF_WEEK.map(day => (
-                        <Text key={day} style={styles.dayOfWeekText}>{day}</Text>
-                    ))}
-                </View>
-                
-                <View style={styles.calendarGrid}>
-                    {emptyStartDays.map((_, index) => (
-                        <View key={`empty-${index}`} style={styles.calendarDayEmpty} />
-                    ))}
-                    
-                    {daysInMonth.map(day => {
-                        const isBlocked = isDateBlocked(day);
-                        const isSelected = isSameDay(day, newBlockedDate);
-                        const isCurrentMonth = isSameMonth(day, currentMonth);
-                        
-                        return (
-                            <TouchableOpacity
-                                key={day.toString()}
-                                style={[
-                                    styles.calendarDay,
-                                    isBlocked && styles.blockedDay,
-                                    isSelected && styles.selectedDay,
-                                    !isCurrentMonth && styles.nonMonthDay
-                                ]}
-                                onPress={() => setNewBlockedDate(day)}
-                                disabled={isBlocked}
-                            >
-                                <Text style={[
-                                    styles.dayText,
-                                    isBlocked && styles.blockedDayText,
-                                    isSelected && styles.selectedDayText,
-                                    !isCurrentMonth && styles.nonMonthDayText
-                                ]}>
-                                    {day.getDate()}
-                                </Text>
-                                {isBlocked && (
-                                    <View style={styles.blockedIndicator} />
-                                )}
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
-            </View>
-        );
-    };
-
-    const BlockedDateItem = ({ date, reason, onRemove }) => {
-        return (
-            <View style={styles.blockedDateItem}>
-                <View style={styles.blockedDateInfo}>
-                    <FontAwesome5 name="calendar-times" size={18} color="#dc3545" />
-                    <Text style={styles.blockedDateText}>
-                        {safeFormatDate(date, 'MMMM dd, yyyy')}
-                    </Text>
-                    <Text style={styles.blockedReasonText}>{reason}</Text>
-                </View>
-                <TouchableOpacity 
-                    style={styles.unblockButton}
-                    onPress={onRemove}
-                >
-                    <FontAwesome5 name="times" size={16} color="#dc3545" />
-                </TouchableOpacity>
-            </View>
-        );
-    };
-
-    const AppointmentCard = ({ appointment, isHistory = false }) => {
-        const isActuallyScheduled = appointment.isCourtesy 
-            ? appointment.isScheduled && appointment.status === 'Confirmed'
-            : appointment.isScheduled;
-
-        return (
-            <View style={[
-                styles.appointmentCard,
-                appointment.isCourtesy && styles.courtesyCard,
-                isActuallyScheduled && styles.scheduledCard
-            ]}>
-                <TouchableOpacity onPress={() => toggleActionButtons(appointment.id)}>
-                    <View style={styles.cardHeader}>
-                        <View style={[
-                            styles.typeIndicator, 
-                            { 
-                                backgroundColor: appointment.typeInfo.color,
-                                width: appointment.isCourtesy ? 30 : 24,
-                                height: appointment.isCourtesy ? 30 : 24,
-                                borderRadius: appointment.isCourtesy ? 15 : 12
-                            }
-                        ]}>
-                            <FontAwesome5 
-                                name={appointment.typeInfo.icon} 
-                                size={appointment.isCourtesy ? 16 : 14} 
-                                color="#fff" 
-                            />
-                        </View>
-                        <Text style={[
-                            styles.appointmentTitle,
-                            appointment.isCourtesy && styles.courtesyTitle
-                        ]}>
-                            {appointment.purpose}
-                        </Text>
-                        <View style={[
-                            styles.statusBadge,
-                            { backgroundColor: STATUS_COLORS[appointment.status] || '#FFF9E6' }
-                        ]}>
-                            <Text style={[
-                                styles.statusText,
-                                { color: appointment.status === 'Pending' ? 'white' : '#fff' }
-                            ]}>
-                                {appointment.status}
-                            </Text>
-                        </View>
-                    </View>
-                    
-                    <View style={styles.appointmentDetails}>
-                        {appointment.isCourtesy && (
-                            <View style={styles.detailRow}>
-                                <FontAwesome5 name="user-tie" size={14} color="#666" />
-                                <Text style={styles.detailText}>
-                                    Courtesy Request
-                                </Text>
-                            </View>
-                        )}
-                        
-                        {appointment.date ? (
-                            <>
-                                <View style={styles.detailRow}>
-                                    <FontAwesome5 name="calendar-alt" size={14} color="#666" />
-                                    <Text style={styles.detailText}>
-                                        {appointment.formattedDate}
-                                    </Text>
-                                </View>
-                                
-                                <View style={styles.detailRow}>
-                                    <FontAwesome5 name="clock" size={14} color="#666" />
-                                    <Text style={styles.detailText}>
-                                        {appointment.formattedTime}
-                                    </Text>
-                                </View>
-                            </>
-                        ) : (
-                            <View style={styles.detailRow}>
-                                <FontAwesome5 name="calendar-plus" size={14} color="#666" />
-                                <Text style={styles.detailText}>
-                                    Date not yet scheduled
-                                </Text>
-                            </View>
-                        )}
-                        
-                        <View style={styles.detailRow}>
-                            <FontAwesome5 name="user" size={14} color="#666" />
-                            <Text style={styles.detailText}>
-                                {`${appointment.userFirstName} ${appointment.userLastName}`}
-                            </Text>
-                        </View>
-                        
-                        <View style={styles.detailRow}>
-                            <FontAwesome5 name="calendar-check" size={14} color="#666" />
-                            <Text style={styles.detailText}>
-                                Submitted: {appointment.formattedCreatedAt}
-                            </Text>
-                        </View>
-                        
-                        {isHistory && (
-                            <View style={styles.detailRow}>
-                                <FontAwesome5 name="history" size={14} color="#666" />
-                                <Text style={styles.detailText}>
-                                    Updated: {appointment.formattedUpdatedAt}
-                                </Text>
-                            </View>
-                        )}
-                        
-                        {appointment.notes && (
-                            <View style={styles.detailRow}>
-                                <FontAwesome5 name="sticky-note" size={14} color="#666" />
-                                <Text style={styles.detailText} numberOfLines={1}>
-                                    {appointment.notes}
-                                </Text>
-                            </View>
-                        )}
-                    </View>
-                    
-                    <View style={styles.cardFooter}>
-                        <Text style={[
-                            styles.typeText,
-                            appointment.isCourtesy && styles.courtesyTypeText
-                        ]}>
-                            {appointment.typeInfo.label}
-                        </Text>
-                        {!isHistory && (
-                            <MaterialIcons 
-                                name={showActionButtons[appointment.id] ? "expand-less" : "expand-more"} 
-                                size={20} 
-                                color="#999" 
-                            />
-                        )}
-                    </View>
-                </TouchableOpacity>
-
-                {!isHistory && showActionButtons[appointment.id] && (
-                    <View style={styles.actionButtonsContainer}>
-                        {appointment.isCourtesy ? (
-                            <>
-                                {!isActuallyScheduled ? (
-                                    <TouchableOpacity 
-                                        style={[styles.actionButton, styles.scheduleButton]}
-                                        onPress={() => handleScheduleCourtesy(appointment.id)}
-                                    >
-                                        <FontAwesome5 name="calendar-plus" size={14} color="#fff" />
-                                        <Text style={styles.actionButtonText}>Schedule</Text>
-                                    </TouchableOpacity>
-                                ) : (
-                                    <View style={styles.scheduledBadge}>
-                                        <FontAwesome5 name="calendar-check" size={14} color="#28a745" />
-                                        <Text style={styles.scheduledText}>Scheduled</Text>
-                                    </View>
-                                )}
-                                <TouchableOpacity 
-                                    style={[styles.actionButton, styles.rejectButton]}
-                                    onPress={() => rejectAppointment(appointment.id)}
-                                >
-                                    <FontAwesome5 name="times" size={14} color="#fff" />
-                                    <Text style={styles.actionButtonText}>Reject</Text>
-                                </TouchableOpacity>
-                            </>
-                        ) : (
-                            <>
-                                <TouchableOpacity 
-                                    style={[styles.actionButton, styles.confirmButton]}
-                                    onPress={() => confirmAppointment(appointment.id)}
-                                >
-                                    <FontAwesome5 name="check" size={14} color="#fff" />
-                                    <Text style={styles.actionButtonText}>Confirm</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity 
-                                    style={[styles.actionButton, styles.rejectButton]}
-                                    onPress={() => rejectAppointment(appointment.id)}
-                                >
-                                    <FontAwesome5 name="times" size={14} color="#fff" />
-                                    <Text style={styles.actionButtonText}>Reject</Text>
-                                </TouchableOpacity>
-                            </>
-                        )}
-                        <TouchableOpacity 
-                            style={[styles.actionButton, styles.detailsButton]}
-                            onPress={() => handleViewDetails(appointment.id)}
-                        >
-                            <FontAwesome5 name="info-circle" size={14} color="#fff" />
-                            <Text style={styles.actionButtonText}>Details</Text>
-                        </TouchableOpacity>
-                    </View>
-                )}
-            </View>
         );
     };
 
@@ -890,7 +572,17 @@ const AppointmentsTab = () => {
                         <FlatList
                             data={filteredAppointments}
                             keyExtractor={item => item.id}
-                            renderItem={({ item }) => <AppointmentCard appointment={item} />}
+                            renderItem={({ item }) => (
+                                <AppointmentCard 
+                                    appointment={item}
+                                    showActionButtons={showActionButtons}
+                                    onToggleActions={toggleActionButtons}
+                                    onConfirm={confirmAppointment}
+                                    onReject={rejectAppointment}
+                                    onSchedule={handleScheduleCourtesy}
+                                    onViewDetails={handleViewDetails}
+                                />
+                            )}
                             ListEmptyComponent={
                                 <View style={styles.emptyContainer}>
                                     <Text style={styles.emptyText}>
@@ -909,13 +601,23 @@ const AppointmentsTab = () => {
                                 />
                             }
                             contentContainerStyle={filteredAppointments.length === 0 ? styles.emptyListContainer : styles.listContainer}
-                            scrollEnabled={false}
                         />
                     ) : activeTab === 'history' ? (
                         <FlatList
                             data={filteredAppointments}
                             keyExtractor={item => item.id}
-                            renderItem={({ item }) => <AppointmentCard appointment={item} isHistory={true} />}
+                            renderItem={({ item }) => (
+                                <AppointmentCard 
+                                    appointment={item}
+                                    isHistory={true}
+                                    showActionButtons={showActionButtons}
+                                    onToggleActions={toggleActionButtons}
+                                    onConfirm={confirmAppointment}
+                                    onReject={rejectAppointment}
+                                    onSchedule={handleScheduleCourtesy}
+                                    onViewDetails={handleViewDetails}
+                                />
+                            )}
                             ListEmptyComponent={
                                 <View style={styles.emptyContainer}>
                                     <Text style={styles.emptyText}>
@@ -934,7 +636,6 @@ const AppointmentsTab = () => {
                                 />
                             }
                             contentContainerStyle={filteredAppointments.length === 0 ? styles.emptyListContainer : styles.listContainer}
-                            scrollEnabled={false}
                         />
                     ) : (
                         <View style={styles.blockedDatesContainer}>
@@ -972,6 +673,7 @@ const AppointmentsTab = () => {
                 </>
             )}
             
+            {/* Type Filter Modal */}
             <Modal
                 visible={showTypeFilter}
                 transparent={true}
@@ -1022,6 +724,7 @@ const AppointmentsTab = () => {
                 </View>
             </Modal>
             
+            {/* Sort Options Modal */}
             <Modal
                 visible={showSortOptions}
                 transparent={true}
@@ -1076,7 +779,13 @@ const AppointmentsTab = () => {
                     <View style={styles.modalContent}>
                         <Text style={styles.modalTitle}>Block Appointment Date</Text>
                         
-                        {renderCalendar()}
+                        <Calendar
+                            currentMonth={currentMonth}
+                            onNavigateMonth={navigateMonth}
+                            selectedDate={newBlockedDate}
+                            onSelectDate={setNewBlockedDate}
+                            blockedDates={blockedDates}
+                        />
                         
                         <TextInput
                             style={styles.reasonInput}
@@ -1099,7 +808,7 @@ const AppointmentsTab = () => {
                             <TouchableOpacity 
                                 style={[styles.modalButton, styles.confirmButton]}
                                 onPress={handleBlockDate}
-                                disabled={isDateBlocked(newBlockedDate)}
+                                disabled={isDateBlocked(newBlockedDate, blockedDates)}
                             >
                                 <Text style={styles.modalButtonText}>Block Date</Text>
                             </TouchableOpacity>
@@ -1110,426 +819,5 @@ const AppointmentsTab = () => {
         </View>
     );
 };
-
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#f5f5f5',
-    },
-    scrollContainer: {
-        flex: 1,
-    },
-    tabContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        backgroundColor: '#fff',
-        borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
-    },
-    tabButton: {
-        paddingVertical: 15,
-        paddingHorizontal: 20,
-        borderBottomWidth: 3,
-        borderBottomColor: 'transparent',
-    },
-    activeTabButton: {
-        borderBottomColor: '#003366',
-    },
-    tabButtonText: {
-        color: '#666',
-        fontWeight: '500',
-    },
-    activeTabButtonText: {
-        color: '#003366',
-        fontWeight: '600',
-    },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    loadingText: {
-        marginTop: 10,
-        color: '#003366',
-    },
-    filterBar: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        padding: 15,
-        backgroundColor: '#fff',
-        borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
-    },
-    filterButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 20,
-        backgroundColor: '#f0f0f0',
-    },
-    filterButtonText: {
-        marginLeft: 8,
-        color: '#003366',
-        fontWeight: '500',
-    },
-    listContainer: {
-        paddingBottom: 20,
-    },
-    appointmentCard: {
-        backgroundColor: '#fff',
-        borderRadius: 10,
-        margin: 10,
-        padding: 15,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    courtesyCard: {
-        borderLeftWidth: 4,
-        borderLeftColor: '#6c5ce7',
-        backgroundColor: '#f8f5ff'
-    },
-    scheduledCard: {
-        borderLeftWidth: 4,
-        borderLeftColor: '#28a745',
-    },
-    cardHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    typeIndicator: {
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 10,
-    },
-    appointmentTitle: {
-        flex: 1,
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#333',
-    },
-    courtesyTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#4a3c8a'
-    },
-    statusBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 12,
-    },
-    statusText: {
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    appointmentDetails: {
-        marginBottom: 10,
-    },
-    detailRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 5,
-    },
-    detailText: {
-        marginLeft: 8,
-        fontSize: 14,
-        color: '#666',
-    },
-    cardFooter: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingTop: 10,
-        borderTopWidth: 1,
-        borderTopColor: '#f0f0f0',
-    },
-    typeText: {
-        fontSize: 12,
-        color: '#666',
-        fontWeight: '500',
-    },
-    courtesyTypeText: {
-        color: '#6c5ce7',
-        fontWeight: '600'
-    },
-    actionButtonsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginTop: 10,
-        flexWrap: 'wrap'
-    },
-    actionButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 6,
-        justifyContent: 'center',
-        marginVertical: 5,
-        minWidth: '30%'
-    },
-    confirmButton: {
-        backgroundColor: '#28a745',
-    },
-    rejectButton: {
-        backgroundColor: '#dc3545',
-    },
-    detailsButton: {
-        backgroundColor: '#007bff',
-    },
-    scheduleButton: {
-        backgroundColor: '#6c5ce7',
-    },
-    actionButtonText: {
-        color: '#fff',
-        fontWeight: '600',
-        fontSize: 12,
-        marginLeft: 5
-    },
-    scheduledBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#e8f5e9',
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 6,
-        marginVertical: 5,
-        minWidth: '30%'
-    },
-    scheduledText: {
-        color: '#28a745',
-        fontWeight: '600',
-        fontSize: 12,
-        marginLeft: 5
-    },
-    emptyContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 40,
-    },
-    emptyText: {
-        fontSize: 16,
-        color: '#666',
-        textAlign: 'center',
-    },
-    emptyListContainer: {
-        flex: 1,
-        justifyContent: 'center',
-    },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    modalContent: {
-        width: '90%',
-        backgroundColor: '#fff',
-        borderRadius: 10,
-        padding: 20,
-    },
-    modalTitle: {
-        fontSize: 18,
-        fontWeight: '600',
-        marginBottom: 20,
-        color: '#003366',
-        textAlign: 'center',
-    },
-    filterOption: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 12,
-        paddingHorizontal: 15,
-        marginBottom: 5,
-        borderRadius: 6,
-    },
-    selectedFilterOption: {
-        backgroundColor: '#e6f2ff',
-    },
-    filterOptionText: {
-        marginLeft: 10,
-        fontSize: 16,
-        color: '#666',
-    },
-    selectedFilterOptionText: {
-        color: '#003366',
-        fontWeight: '500',
-    },
-    typeIcon: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    modalCloseButton: {
-        marginTop: 15,
-        padding: 12,
-        backgroundColor: '#003366',
-        borderRadius: 6,
-        alignItems: 'center',
-    },
-    modalCloseButtonText: {
-        color: '#fff',
-        fontWeight: '600',
-    },
-    blockedDatesContainer: {
-        flex: 1,
-        padding: 15,
-    },
-    addBlockedDateButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#dc3545',
-        padding: 12,
-        borderRadius: 6,
-        marginBottom: 15,
-    },
-    addBlockedDateButtonText: {
-        color: '#fff',
-        fontWeight: '600',
-        marginLeft: 8,
-    },
-    blockedDatesList: {
-        paddingBottom: 20,
-    },
-    blockedDateItem: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        backgroundColor: '#fff',
-        padding: 15,
-        borderRadius: 8,
-        marginBottom: 10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
-        elevation: 2,
-    },
-    blockedDateInfo: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    blockedDateText: {
-        marginLeft: 10,
-        marginRight: 15,
-        color: '#333',
-        fontWeight: '500',
-    },
-    blockedReasonText: {
-        color: '#666',
-        fontStyle: 'italic',
-    },
-    unblockButton: {
-        padding: 8,
-    },
-    calendarContainer: {
-        marginBottom: 20,
-    },
-    calendarHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 15,
-    },
-    calendarTitle: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#003366',
-    },
-    daysOfWeek: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 10,
-        paddingHorizontal: 1,
-    },
-    dayOfWeekText: {
-        flex: 1,
-        textAlign: 'center',
-        fontWeight: '600',
-        color: '#666',
-    },
-    calendarGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-    },
-    calendarDay: {
-        width: `${100 / 7}%`,
-        aspectRatio: 1, // makes square
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderRadius: 20,
-        padding:10,
-    },
-    calendarDayEmpty: {
-        width: `${100 / 7}%`,
-        aspectRatio: 1,
-    },
-    dayText: {
-        fontSize: 16,
-        color: '#333',
-    },
-    blockedDay: {
-        backgroundColor: '#ffebee',
-    },
-    blockedDayText: {
-        color: '#b71c1c',
-    },
-    selectedDay: {
-        backgroundColor: '#003366',
-    },
-    selectedDayText: {
-        color: '#fff',
-    },
-    nonMonthDay: {
-        opacity: 0.3,
-    },
-    nonMonthDayText: {
-        color: '#999',
-    },
-    blockedIndicator: {
-        position: 'absolute',
-        top: 2,
-        right: 2,
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: '#dc3545',
-    },
-    reasonInput: {
-        borderWidth: 1,
-        borderColor: '#ddd',
-        borderRadius: 6,
-        padding: 12,
-        marginBottom: 15,
-    },
-    modalButtonRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-    },
-    modalButton: {
-        padding: 12,
-        borderRadius: 6,
-        width: '48%',
-        alignItems: 'center',
-    },
-    cancelButton: {
-        backgroundColor: '#6c757d',
-    },
-    confirmButton: {
-        backgroundColor: '#dc3545',
-    },
-    modalButtonText: {
-        color: '#fff',
-        fontWeight: '600',
-    },
-});
 
 export default AppointmentsTab;
