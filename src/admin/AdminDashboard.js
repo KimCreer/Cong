@@ -298,13 +298,36 @@ const AdminDashboard = () => {
         );
         
         const unsubscribeAppointments = onSnapshot(
-            query(collection(db, "appointments"), where("status", "==", "Pending")),
+            query(
+                collection(db, "appointments"),
+                where("date", ">=", new Date()),
+                orderBy("date", "asc"),
+                limit(5)
+            ),
             (snapshot) => {
-                const appointmentsData = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    formattedDateTime: formatAppointmentDateTime(doc.data().date, doc.data().time)
-                }));
+                const appointmentsData = snapshot.docs.map(doc => {
+                    const data = doc.data();
+                    
+                    // Format the createdAt timestamp
+                    const formattedDateTime = data.date ? formatAppointmentDateTime(data.date, data.time) : 'N/A';
+                    const createdAt = data.createdAt ? formatAppointmentDateTime(data.createdAt, null) : 'N/A';
+                    
+                    return {
+                        id: doc.id,
+                        ...data,
+                        formattedDateTime,
+                        createdAt,
+                        type: data.type || 'OTHER',
+                        status: data.status || 'Pending',
+                        isCourtesy: data.isCourtesy || false,
+                        medicalDetails: data.medicalDetails || '',
+                        patientName: data.patientName || '',
+                        processorName: data.processorName || '',
+                        purpose: data.purpose || '',
+                        selfieUrl: data.selfieUrl || null,
+                        imageUrl: data.imageUrl || null
+                    };
+                });
                 setAppointments(appointmentsData);
                 setStats(prev => ({ ...prev, pendingAppointments: snapshot.size }));
             }
@@ -434,17 +457,22 @@ const AdminDashboard = () => {
                     <Text style={styles.sectionTitle}>Upcoming Appointments</Text>
                     {appointments.length > 0 ? (
                         <>
-                            {appointments.slice(0, 2).map(appointment => (
-                                <AppointmentItem key={appointment.id} appointment={appointment} />
+                            {appointments.map(appointment => (
+                                <AppointmentItem 
+                                    key={appointment.id} 
+                                    appointment={appointment}
+                                    onPress={() => {
+                                        setActiveTab('appointments');
+                                        // You can add navigation to specific appointment details here
+                                    }}
+                                />
                             ))}
-                            {appointments.length > 2 && (
-                                <TouchableOpacity 
-                                    style={styles.seeAllButton}
-                                    onPress={() => setActiveTab('appointments')}
-                                >
-                                    <Text style={styles.seeAllText}>See all appointments →</Text>
-                                </TouchableOpacity>
-                            )}
+                            <TouchableOpacity 
+                                style={styles.seeAllButton}
+                                onPress={() => setActiveTab('appointments')}
+                            >
+                                <Text style={styles.seeAllText}>See all appointments →</Text>
+                            </TouchableOpacity>
                         </>
                     ) : (
                         <View style={styles.emptyContainer}>
@@ -660,6 +688,52 @@ const styles = StyleSheet.create({
         color: "#003366",
         marginTop: 20,
         marginBottom: 12,
+    },
+    appointmentItem: {
+        backgroundColor: 'white',
+        borderRadius: 8,
+        padding: 16,
+        marginBottom: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    appointmentHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    appointmentType: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#003366',
+    },
+    appointmentStatus: {
+        fontSize: 14,
+        fontWeight: '500',
+    },
+    appointmentDateTime: {
+        fontSize: 14,
+        color: '#666',
+        marginBottom: 4,
+    },
+    appointmentSubmitted: {
+        fontSize: 14,
+        color: '#666',
+        marginBottom: 4,
+    },
+    appointmentPurpose: {
+        fontSize: 14,
+        color: '#666',
+        marginTop: 4,
+    },
+    appointmentDetail: {
+        fontSize: 14,
+        color: '#666',
+        marginTop: 4,
     },
 });
 
