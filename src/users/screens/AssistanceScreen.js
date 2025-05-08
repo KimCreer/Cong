@@ -632,7 +632,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 22,
-    fontWeight: 'bold',
+    fontWeight: 'bold', 
     color: '#003580',
     flex: 1,
   },
