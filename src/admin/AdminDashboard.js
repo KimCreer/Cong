@@ -257,6 +257,32 @@ const AdminDashboard = () => {
         }
     }, []);
 
+    const getLast7Days = () => {
+        const dates = [];
+        for (let i = 6; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            dates.push(date);
+        }
+        return dates;
+    };
+
+    const formatDateLabel = (date) => {
+        return date.toLocaleDateString('en-US', { 
+            month: 'short',
+            day: 'numeric'
+        });
+    };
+
+    const formatTooltipLabel = (date) => {
+        return date.toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric'
+        });
+    };
+
     useEffect(() => {
         fetchAdminData();
         fetchAdminProfile();
@@ -279,19 +305,33 @@ const AdminDashboard = () => {
                     medicalApplications: snapshot.size 
                 }));
                 
-                const programCounts = {};
+                // Get last 7 days
+                const last7Days = getLast7Days();
+                const dailyCounts = new Array(7).fill(0);
+                
+                // Count applications for each day
                 snapshot.docs.forEach(doc => {
-                    const program = doc.data().program || doc.data().type || 'Other';
-                    programCounts[program] = (programCounts[program] || 0) + 1;
+                    const appDate = doc.data().createdAt?.toDate();
+                    if (!appDate) return;
+                    
+                    const dayIndex = last7Days.findIndex(date => 
+                        date.getDate() === appDate.getDate() &&
+                        date.getMonth() === appDate.getMonth() &&
+                        date.getFullYear() === appDate.getFullYear()
+                    );
+                    
+                    if (dayIndex !== -1) {
+                        dailyCounts[dayIndex]++;
+                    }
                 });
                 
-                const labels = Object.keys(programCounts);
-                const data = Object.values(programCounts);
-                
+                // Prepare chart data
                 setChartData({
-                    labels: labels.length > 0 ? labels : ['No Programs'],
+                    labels: last7Days.map(formatDateLabel),
                     datasets: [{
-                        data: data.length > 0 ? data : [0]
+                        data: dailyCounts,
+                        color: (opacity = 1) => `rgba(0, 51, 102, ${opacity})`,
+                        strokeWidth: 2
                     }]
                 });
             }

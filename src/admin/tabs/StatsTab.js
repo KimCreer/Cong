@@ -8,14 +8,14 @@ import {
     Dimensions,
     SafeAreaView 
 } from "react-native";
-import { BarChart, PieChart } from 'react-native-chart-kit';
+import { LineChart, PieChart } from 'react-native-chart-kit';
 import { FontAwesome5 } from "@expo/vector-icons";
 import * as Animatable from 'react-native-animatable';
 
 const StatsTab = ({ chartData, pieData, stats }) => {
     const screenWidth = Dimensions.get('window').width;
     const chartWidth = screenWidth - 40;
-    const barChartHeight = 280;
+    const lineChartHeight = 280;
     const pieChartHeight = 220;
     
     const chartConfig = {
@@ -33,10 +33,25 @@ const StatsTab = ({ chartData, pieData, stats }) => {
             strokeWidth: '2',
             stroke: '#003366'
         },
-        barPercentage: 0.7,
         propsForLabels: {
-            fontSize: 10,
-        }
+            fontSize: 12,
+            fontWeight: '500'
+        },
+        formatYLabel: (value) => `${value}`,
+        formatXLabel: (value) => value,
+        yAxisLabel: "Applications",
+        yAxisSuffix: "",
+        yAxisInterval: 1,
+    };
+
+    // Ensure chartData has the correct structure
+    const safeChartData = {
+        labels: chartData?.labels || ['No Data'],
+        datasets: [{
+            data: chartData?.datasets?.[0]?.data || [0],
+            color: (opacity = 1) => `rgba(0, 51, 102, ${opacity})`,
+            strokeWidth: 2
+        }]
     };
 
     // Fixed hexToRgb function with proper error handling
@@ -70,7 +85,6 @@ const StatsTab = ({ chartData, pieData, stats }) => {
                 contentContainerStyle={styles.scrollContainer}
                 showsVerticalScrollIndicator={false}
             >
-
                 <Text style={styles.sectionTitle}>System Statistics</Text>
                 
                 <View style={styles.statsSummary}>
@@ -83,7 +97,7 @@ const StatsTab = ({ chartData, pieData, stats }) => {
                         <View style={[styles.statIcon, { backgroundColor: 'rgba(255, 152, 0, 0.1)' }]}>
                             <FontAwesome5 name="calendar-check" size={20} color="#FF9800" />
                         </View>
-                        <Text style={styles.statValue}>{stats.pendingAppointments}</Text>
+                        <Text style={styles.statValue}>{stats?.pendingAppointments || 0}</Text>
                         <Text style={styles.statLabel}>Pending Appointments</Text>
                     </Animatable.View>
                     
@@ -96,7 +110,7 @@ const StatsTab = ({ chartData, pieData, stats }) => {
                         <View style={[styles.statIcon, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
                             <FontAwesome5 name="comments" size={20} color="#F44336" />
                         </View>
-                        <Text style={styles.statValue}>{stats.pendingConcerns}</Text>
+                        <Text style={styles.statValue}>{stats?.pendingConcerns || 0}</Text>
                         <Text style={styles.statLabel}>Pending Concerns</Text>
                     </Animatable.View>
                 </View>
@@ -111,7 +125,7 @@ const StatsTab = ({ chartData, pieData, stats }) => {
                         <View style={[styles.statIcon, { backgroundColor: 'rgba(76, 175, 80, 0.1)' }]}>
                             <FontAwesome5 name="project-diagram" size={20} color="#4CAF50" />
                         </View>
-                        <Text style={styles.statValue}>{stats.activeProjects}</Text>
+                        <Text style={styles.statValue}>{stats?.activeProjects || 0}</Text>
                         <Text style={styles.statLabel}>Active Projects</Text>
                     </Animatable.View>
                     
@@ -124,31 +138,34 @@ const StatsTab = ({ chartData, pieData, stats }) => {
                         <View style={[styles.statIcon, { backgroundColor: 'rgba(33, 150, 243, 0.1)' }]}>
                             <FontAwesome5 name="file-medical" size={20} color="#2196F3" />
                         </View>
-                        <Text style={styles.statValue}>{stats.medicalApplications}</Text>
+                        <Text style={styles.statValue}>{stats?.medicalApplications || 0}</Text>
                         <Text style={styles.statLabel}>Medical Apps</Text>
                     </Animatable.View>
                 </View>
                 
-                <Text style={styles.sectionTitle}>Medical Applications by Program</Text>
+                <Text style={styles.sectionTitle}>Daily Medical Applications</Text>
                 <Animatable.View 
                     animation="fadeInUp" 
                     duration={800}
                     delay={300}
                     style={styles.chartContainer}
                 >
-                    <BarChart
-                        data={chartData}
+                    <LineChart
+                        data={safeChartData}
                         width={chartWidth}
-                        height={barChartHeight}
-                        yAxisLabel=""
+                        height={lineChartHeight}
                         chartConfig={chartConfig}
-                        verticalLabelRotation={30}
-                        fromZero={true}
-                        showBarTops={true}
+                        bezier
                         style={styles.chart}
+                        withDots={true}
+                        withShadow={false}
                         withInnerLines={true}
-                        withHorizontalLabels={true}
+                        withOuterLines={true}
+                        withVerticalLines={false}
+                        withHorizontalLines={true}
                         withVerticalLabels={true}
+                        withHorizontalLabels={true}
+                        fromZero={true}
                         segments={4}
                     />
                 </Animatable.View>
@@ -161,7 +178,7 @@ const StatsTab = ({ chartData, pieData, stats }) => {
                     style={styles.chartContainer}
                 >
                     <PieChart
-                        data={pieData}
+                        data={pieData || []}
                         width={chartWidth}
                         height={pieChartHeight}
                         chartConfig={pieChartConfig}
@@ -249,7 +266,7 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         marginVertical: 8,
         alignSelf: 'center',
-    },
+    }
 });
 
 export default StatsTab;
