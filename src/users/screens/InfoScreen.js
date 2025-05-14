@@ -52,7 +52,7 @@ export default function InfoScreen() {
                         />
                     </View>
                     <Text style={styles.profileName}>Hon. Jimmy Fresnedi</Text>
-                    <Text style={styles.profileTitle}>Representative, 2nd District</Text>
+                    <Text style={styles.profileTitle}>Representative, Lone District</Text>
                     <View style={styles.badgeContainer}>
                         <View style={styles.badge}>
                             <Text style={styles.badgeText}>Public Servant</Text>

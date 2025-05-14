@@ -14,6 +14,18 @@ import { FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 import { getFirestore, doc, getDoc, updateDoc, serverTimestamp } from '@react-native-firebase/firestore';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
+function formatSelectedDate(dateStr) {
+  if (!dateStr) return '';
+  const [year, month, day] = dateStr.split('-');
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+  return date.toLocaleDateString([], {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+}
+
 const ScheduleCourtesy = ({ navigation }) => {
   const route = useRoute();
   const { appointmentId } = route.params;
@@ -100,7 +112,7 @@ const ScheduleCourtesy = ({ navigation }) => {
       const date = new Date(year, month, i);
       days.push({ 
         day: i, 
-        date: date.toISOString().split('T')[0],
+        date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
         isToday: isToday(date),
         isPast: isPastDate(date),
         isWeekend: date.getDay() === 0 || date.getDay() === 6
@@ -130,7 +142,7 @@ const ScheduleCourtesy = ({ navigation }) => {
   };
 
   const handleDateSelect = (date) => {
-    if (isPastDate(new Date(date))) {
+    if (isPastDate(new Date(date + 'T00:00:00'))) {
       Alert.alert('Invalid Date', 'Cannot select past dates');
       return;
     }
@@ -161,7 +173,7 @@ const ScheduleCourtesy = ({ navigation }) => {
 
     setLoading(true);
     try {
-      const dateObj = new Date(selectedDate);
+      const dateObj = new Date(selectedDate + 'T00:00:00');
       const timeObj = new Date(selectedTime);
       
       dateObj.setHours(timeObj.getHours());
@@ -185,14 +197,7 @@ const ScheduleCourtesy = ({ navigation }) => {
         [
           { 
             text: 'OK', 
-            onPress: () => {
-              // Pass data back to previous screen
-              navigation.navigate({
-                name: 'AdminDashboard',
-                params: { refresh: true },
-                merge: true
-              });
-            }
+            onPress: () => navigation.goBack()
           }
         ]
       );
@@ -313,12 +318,7 @@ const ScheduleCourtesy = ({ navigation }) => {
           <View style={styles.selectedDateTime}>
             <FontAwesome5 name="calendar-alt" size={18} color="#6c5ce7" />
             <Text style={styles.dateText}>
-              {new Date(selectedDate).toLocaleDateString([], { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-              })}
+              {formatSelectedDate(selectedDate)}
             </Text>
           </View>
           

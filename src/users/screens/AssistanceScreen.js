@@ -21,6 +21,7 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
+import { HOSPITALS } from '../data/hospitals';
 
 // Enable LayoutAnimation for Android
 if (UIManager.setLayoutAnimationEnabledExperimental) {
@@ -65,6 +66,9 @@ const AssistanceScreen = () => {
       },
     }
   );
+
+  // Add new state for similar hospitals
+  const [similarHospitals, setSimilarHospitals] = useState([]);
 
   // Contact information
   const contactInformation = {
@@ -121,6 +125,75 @@ const AssistanceScreen = () => {
       keyboardDidHideListener.remove();
     };
   }, []);
+
+  useEffect(() => {
+    if (!hospital?.requirements) return;
+
+    const currentRequirements = getCurrentRequirements();
+    if (!currentRequirements.length) return;
+
+    // Find hospitals with similar requirements
+    const similar = HOSPITALS.filter(h => {
+      // Skip the current hospital
+      if (h.id === hospital.id) return false;
+      
+      // Only include hospitals of the same type
+      if (h.type !== hospital.type) return false;
+
+      // Get requirements for comparison
+      const hRequirements = h.type === 'dswd-medical' || h.type === 'dswd-burial'
+        ? h.requirements
+        : formData.patientStatus === 'inpatient'
+          ? h.requirements?.inpatient
+          : h.requirements?.outpatient;
+
+      if (!hRequirements) return false;
+
+      // Count matching requirements
+      const matchingRequirements = currentRequirements.filter(req =>
+        hRequirements.some(hReq => 
+          hReq.toLowerCase().includes(req.toLowerCase()) ||
+          req.toLowerCase().includes(hReq.toLowerCase())
+        )
+      );
+
+      // Consider hospitals similar if they share at least 3 requirements
+      return matchingRequirements.length >= 3;
+    });
+
+    // Sort by number of matching requirements
+    similar.sort((a, b) => {
+      const aRequirements = a.type === 'dswd-medical' || a.type === 'dswd-burial'
+        ? a.requirements
+        : formData.patientStatus === 'inpatient'
+          ? a.requirements?.inpatient
+          : a.requirements?.outpatient;
+
+      const bRequirements = b.type === 'dswd-medical' || b.type === 'dswd-burial'
+        ? b.requirements
+        : formData.patientStatus === 'inpatient'
+          ? b.requirements?.inpatient
+          : b.requirements?.outpatient;
+
+      const aMatches = currentRequirements.filter(req =>
+        aRequirements.some(aReq => 
+          aReq.toLowerCase().includes(req.toLowerCase()) ||
+          req.toLowerCase().includes(aReq.toLowerCase())
+        )
+      ).length;
+
+      const bMatches = currentRequirements.filter(req =>
+        bRequirements.some(bReq => 
+          bReq.toLowerCase().includes(req.toLowerCase()) ||
+          req.toLowerCase().includes(bReq.toLowerCase())
+        )
+      ).length;
+
+      return bMatches - aMatches;
+    });
+
+    setSimilarHospitals(similar.slice(0, 5)); // Show top 5 similar hospitals
+  }, [hospital, formData.patientStatus]);
 
   const handleInputChange = (name, value) => {
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -461,6 +534,49 @@ const AssistanceScreen = () => {
     );
   };
 
+  // Add render function for similar hospitals
+  const renderSimilarHospitals = () => {
+    if (!similarHospitals.length) return null;
+
+    return (
+      <View style={styles.similarHospitalsContainer}>
+        <Text style={styles.sectionTitle}>Similar Hospitals:</Text>
+        <Text style={styles.similarHospitalsSubtitle}>
+          These hospitals have similar requirements:
+        </Text>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.similarHospitalsList}
+        >
+          {similarHospitals.map((h) => (
+            <TouchableOpacity
+              key={h.id}
+              style={styles.similarHospitalCard}
+              onPress={() => {
+                setHospital(h);
+                setModalVisible(false);
+                scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+              }}
+            >
+              <Image 
+                source={{ uri: h.logo }} 
+                style={styles.similarHospitalLogo}
+                resizeMode="contain"
+              />
+              <Text style={styles.similarHospitalName} numberOfLines={2}>
+                {h.name}
+              </Text>
+              <View style={[styles.similarHospitalBadge, { backgroundColor: h.color }]}>
+                <Text style={styles.similarHospitalBadgeText}>{h.category}</Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView 
@@ -546,6 +662,9 @@ const AssistanceScreen = () => {
           ))}
         </View>
 
+        {/* Add similar hospitals section */}
+        {renderSimilarHospitals()}
+
         <View style={styles.noteBox}>
           <FontAwesome5 name="info-circle" size={16} color="#003580" />
           <Text style={styles.noteText}>
@@ -589,24 +708,28 @@ const AssistanceScreen = () => {
         animationType="slide"
         onRequestClose={() => setModalVisible(false)}
         statusBarTranslucent={true}
-        transparent={false}
+        transparent={true}
       >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity 
-              onPress={() => {
-                Keyboard.dismiss();
-                setModalVisible(false);
-              }}
-            >
-              <FontAwesome5 name="times" size={20} color="#003580" />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Application Form</Text>
-            <View style={{ width: 20 }} />
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalWrapper}>
+            <SafeAreaView style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <TouchableOpacity 
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setModalVisible(false);
+                  }}
+                >
+                  <FontAwesome5 name="times" size={20} color="#003580" />
+                </TouchableOpacity>
+                <Text style={styles.modalTitle}>Application Form</Text>
+                <View style={{ width: 20 }} />
+              </View>
+              
+              {renderModalContent()}
+            </SafeAreaView>
           </View>
-          
-          {renderModalContent()}
-        </SafeAreaView>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -766,6 +889,23 @@ const styles = StyleSheet.create({
   applyButton: {
     backgroundColor: '#003580',
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  modalWrapper: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    width: '100%',
+    height: '90%',
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
+  },
   modalContainer: {
     flex: 1,
     backgroundColor: 'white',
@@ -777,6 +917,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#EEE',
+    backgroundColor: 'white',
   },
   modalTitle: {
     fontSize: 20,
@@ -845,6 +986,56 @@ const styles = StyleSheet.create({
     padding: 16,
     marginTop: 10,
     marginBottom: 30,
+  },
+  similarHospitalsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 15,
+    padding: 15,
+    marginTop: 15,
+    marginBottom: 15,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  similarHospitalsSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 12,
+  },
+  similarHospitalsList: {
+    paddingRight: 15,
+  },
+  similarHospitalCard: {
+    width: 120,
+    marginRight: 12,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 10,
+    padding: 10,
+    alignItems: 'center',
+  },
+  similarHospitalLogo: {
+    width: 60,
+    height: 60,
+    marginBottom: 8,
+  },
+  similarHospitalName: {
+    fontSize: 12,
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 6,
+    fontWeight: '500',
+  },
+  similarHospitalBadge: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  similarHospitalBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });
 

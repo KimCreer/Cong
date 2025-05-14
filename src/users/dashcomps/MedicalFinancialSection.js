@@ -6,7 +6,8 @@ import {
   StyleSheet,
   ScrollView,
   Image,
-  Alert
+  Alert,
+  TextInput
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import PropTypes from 'prop-types';
@@ -14,28 +15,83 @@ import PropTypes from 'prop-types';
 // Constants
 const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/80';
 const FILTER_OPTIONS = [
-  { id: 'guarantee', label: 'Guarantee', color: '#4CAF50' },
+  { id: 'guarantee', label: 'Guarantee Letters', color: '#4CAF50' },
   { id: 'dswd-medical', label: 'DSWD Medical', color: '#5E35B1' },
   { id: 'dswd-burial', label: 'DSWD Burial', color: '#5E35B1' },
 ];
 
+// Hospital category order and descriptions
+const CATEGORY_ORDER = {
+  'local hospital': 1,
+  'doh hospital': 2,
+  'suc hospital': 3
+};
+
+const CATEGORY_DESCRIPTIONS = {
+  'local hospital': 'City/Municipal Hospital',
+  'doh hospital': 'Department of Health Hospital',
+  'suc hospital': 'State University Hospital'
+};
+
 // Program type descriptions
 const PROGRAM_DESCRIPTIONS = {
-  'guarantee': 'Hospital admission guarantee letter services',
+  'guarantee': 'Hospital admission guarantee letter services for medical assistance',
   'dswd-medical': 'DSWD financial assistance for medical expenses',
   'dswd-burial': 'Assistance for funeral and burial expenses',
   'default': 'Medical financial assistance program'
 };
 
 const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
-  const [activeFilter, setActiveFilter] = useState('guarantee'); // Default to guarantee filter
+  const [activeFilter, setActiveFilter] = useState('guarantee');
+  const [selectedCategory, setSelectedCategory] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   
   const filteredHospitals = useMemo(() => {
     if (!hospitals || hospitals.length === 0) return [];
     
-    return hospitals.filter(h => h.type === activeFilter);
-  }, [hospitals, activeFilter]);
+    // First filter by type
+    let filtered = hospitals.filter(h => h.type === activeFilter);
+    
+    // Then filter by category if selected and in guarantee letters
+    if (selectedCategory && activeFilter === 'guarantee') {
+      filtered = filtered.filter(h => 
+        (h.category || '').toLowerCase() === selectedCategory.toLowerCase()
+      );
+    }
+    
+    // Then filter by search query if exists
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(h => 
+        h.name.toLowerCase().includes(query) ||
+        (h.category && h.category.toLowerCase().includes(query))
+      );
+    }
+
+    // Sort hospitals by category and then alphabetically
+    return filtered.sort((a, b) => {
+      const aCategory = (a.category || '').toLowerCase();
+      const bCategory = (b.category || '').toLowerCase();
+      
+      const aCategoryOrder = CATEGORY_ORDER[aCategory] || 999;
+      const bCategoryOrder = CATEGORY_ORDER[bCategory] || 999;
+      
+      if (aCategoryOrder !== bCategoryOrder) {
+        return aCategoryOrder - bCategoryOrder;
+      }
+      
+      return a.name.localeCompare(b.name);
+    });
+  }, [hospitals, activeFilter, searchQuery, selectedCategory]);
+
+  // Reset category filter when changing program type
+  const handleFilterChange = useCallback((filterId) => {
+    setActiveFilter(filterId);
+    if (filterId !== 'guarantee') {
+      setSelectedCategory(null);
+    }
+  }, []);
 
   const navigateToHospital = useCallback((hospital) => {
     if (!hospital) return;
@@ -78,6 +134,10 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
     }
   };
 
+  const getCategoryDisplayName = (category) => {
+    return CATEGORY_DESCRIPTIONS[category?.toLowerCase()] || category;
+  };
+
   const renderFilterButton = ({ id, label, color }) => (
     <TouchableOpacity
       key={id}
@@ -86,7 +146,7 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
         activeFilter === id && styles.activeFilter,
         { backgroundColor: activeFilter === id ? color : 'rgba(255, 255, 255, 0.2)' }
       ]}
-      onPress={() => setActiveFilter(id)}
+      onPress={() => handleFilterChange(id)}
       activeOpacity={0.7}
     >
       <Text style={[
@@ -98,7 +158,7 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
     </TouchableOpacity>
   );
 
-  const renderHospitalCard = (hospital) => (
+  const renderHospitalCard = useCallback((hospital) => (
     <TouchableOpacity 
       key={hospital.id} 
       style={styles.hospitalCard}
@@ -115,7 +175,7 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
       
       {hospital.category && (
         <View style={[styles.categoryBadge, { backgroundColor: getCategoryColor(hospital.category) }]}>
-          <Text style={styles.categoryText}>{hospital.category}</Text>
+          <Text style={styles.categoryText}>{getCategoryDisplayName(hospital.category)}</Text>
         </View>
       )}
       
@@ -127,17 +187,57 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
         {hospital.name}
       </Text>
     </TouchableOpacity>
-  );
+  ), [navigateToHospital]);
 
   const getRequirementTypeLabel = (type) => {
     const labels = {
-      'guarantee': 'Guarantee',
+      'guarantee': 'Guarantee Letters',
       'medical-financial': 'Medical',
       'endorsement': 'Endorsement',
       'dswd-medical': 'DSWD Medical',
       'dswd-burial': 'DSWD Burial'
     };
     return labels[type] || type;
+  };
+
+  const renderCategoryLegend = () => {
+    if (activeFilter !== 'guarantee') return null;
+
+    const categories = [
+      { id: 'local hospital', label: 'City/Municipal Hospital', color: '#2196F3', description: 'Local government-operated hospitals' },
+      { id: 'doh hospital', label: 'DOH Hospital', color: '#4CAF50', description: 'Department of Health hospitals' },
+      { id: 'suc hospital', label: 'State University Hospital', color: '#FF9800', description: 'University-affiliated hospitals' }
+    ];
+
+    return (
+      <View style={styles.categoryLegend}>
+        <Text style={styles.legendTitle}>Hospital Categories:</Text>
+        <View style={styles.legendItems}>
+          {categories.map(category => (
+            <TouchableOpacity
+              key={category.id}
+              style={[
+                styles.legendItem,
+                selectedCategory === category.id && styles.selectedLegendItem
+              ]}
+              onPress={() => setSelectedCategory(
+                selectedCategory === category.id ? null : category.id
+              )}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.legendColor, { backgroundColor: category.color }]} />
+              <View style={styles.legendTextContainer}>
+                <Text style={styles.legendText}>{category.label}</Text>
+                <Text style={styles.legendDescription}>{category.description}</Text>
+              </View>
+              {selectedCategory === category.id && (
+                <FontAwesome5 name="check-circle" size={16} color="#FFFFFF" style={styles.checkIcon} />
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+    );
   };
 
   return (
@@ -163,6 +263,24 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
           {getProgramDescription(activeFilter)}
         </Text>
         
+        {/* Search Input */}
+        <View style={styles.searchContainer}>
+          <FontAwesome5 name="search" size={14} color="rgba(255, 255, 255, 0.7)" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search hospitals..."
+            placeholderTextColor="rgba(255, 255, 255, 0.5)"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            clearButtonMode="while-editing"
+          />
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+              <FontAwesome5 name="times-circle" size={14} color="rgba(255, 255, 255, 0.7)" />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
         {/* Filter Controls */}
         <ScrollView
           horizontal
@@ -171,6 +289,9 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
         >
           {FILTER_OPTIONS.map(renderFilterButton)}
         </ScrollView>
+
+        {/* Category Legend - Now only shows for guarantee letters */}
+        {renderCategoryLegend()}
 
         {/* Hospitals Grid */}
         <ScrollView 
@@ -184,10 +305,10 @@ const MedicalFinancialSection = ({ navigation, hospitals = [] }) => {
             <View style={styles.noHospitalsContainer}>
               <FontAwesome5 name="hospital" size={24} color="rgba(255, 255, 255, 0.6)" />
               <Text style={styles.noHospitalsText}>
-                No hospitals found for this category
+                {searchQuery ? 'No hospitals found matching your search' : 'No hospitals found for this category'}
               </Text>
               <Text style={styles.noHospitalsSubText}>
-                Try selecting a different category
+                {searchQuery ? 'Try a different search term' : 'Try selecting a different category'}
               </Text>
             </View>
           )}
@@ -296,13 +417,41 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 10,
+    marginBottom: 15,
+    paddingHorizontal: 12,
+    height: 40,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 14,
+    height: '100%',
+  },
+  clearButton: {
+    padding: 4,
+  },
   hospitalsContainer: {
     paddingVertical: 10,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
   },
   hospitalCard: {
     alignItems: 'center',
     marginRight: 15,
+    marginBottom: 15,
     width: 100,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 10,
+    padding: 8,
   },
   logoContainer: {
     width: 80,
@@ -325,15 +474,16 @@ const styles = StyleSheet.create({
   },
   categoryBadge: {
     paddingVertical: 2,
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     borderRadius: 4,
     marginBottom: 5,
     alignSelf: 'center',
   },
   categoryText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: 'bold',
+    textAlign: 'center',
   },
   requirementBadge: {
     paddingVertical: 3,
@@ -416,6 +566,53 @@ const styles = StyleSheet.create({
     color: '#003580',
     fontSize: 15,
     fontWeight: 'bold',
+  },
+  categoryLegend: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+  },
+  legendTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  legendItems: {
+    gap: 12,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  selectedLegendItem: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  checkIcon: {
+    marginLeft: 8,
+  },
+  legendColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 10,
+  },
+  legendTextContainer: {
+    flex: 1,
+  },
+  legendText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  legendDescription: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 12,
+    marginTop: 2,
   },
 });
 

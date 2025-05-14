@@ -220,10 +220,14 @@ const styles = StyleSheet.create({
     fbHeaderRight: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'flex-end',
+        minWidth: 100,
     },
     fbHeaderIcon: {
         marginLeft: 15,
-        position: 'relative',
+        marginRight: 5,
+        padding: 5,
+        zIndex: 1,
     },
     fbProfileButton: {
         marginLeft: 15,

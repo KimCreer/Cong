@@ -348,6 +348,20 @@ const AppointmentsTab = () => {
         );
     };
 
+    const handleCancelAppointment = async (appointmentId) => {
+        try {
+            await updateDoc(doc(db, 'appointments', appointmentId), {
+                status: "Cancelled",
+                updatedAt: serverTimestamp()
+            });
+            Alert.alert("Success", "Appointment cancelled");
+            setShowActionButtons(prev => ({ ...prev, [appointmentId]: false }));
+        } catch (error) {
+            console.error("Error cancelling appointment:", error);
+            Alert.alert("Error", "Failed to cancel appointment");
+        }
+    };
+
     useEffect(() => {
         fetchAppointments();
         fetchBlockedDates();
@@ -612,9 +626,13 @@ const AppointmentsTab = () => {
                                     isHistory={true}
                                     showActionButtons={showActionButtons}
                                     onToggleActions={toggleActionButtons}
-                                    onConfirm={confirmAppointment}
-                                    onReject={rejectAppointment}
-                                    onSchedule={handleScheduleCourtesy}
+                                    onSchedule={item.isCourtesy ? handleScheduleCourtesy : undefined}
+                                    onCancel={
+                                        (item.isCourtesy || item.typeInfo.label === 'Medical Finance')
+                                            ? handleCancelAppointment
+                                            : undefined
+                                    }
+                                    allowHistoryActions={item.isCourtesy || item.typeInfo.label === 'Medical Finance'}
                                     onViewDetails={handleViewDetails}
                                 />
                             )}

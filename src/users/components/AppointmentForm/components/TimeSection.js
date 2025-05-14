@@ -5,6 +5,21 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { isWeekend } from '../utils/validationUtils';
 import { styles } from '../styles/styles';
 
+const getTimeAsDate = (selectedTime) => {
+  if (!selectedTime) return new Date();
+  // selectedTime is like "10:30 AM"
+  const [time, period] = selectedTime.split(' ');
+  let [hours, minutes] = time.split(':').map(Number);
+  if (period === 'PM' && hours < 12) hours += 12;
+  if (period === 'AM' && hours === 12) hours = 0;
+  const date = new Date();
+  date.setHours(hours);
+  date.setMinutes(minutes);
+  date.setSeconds(0);
+  date.setMilliseconds(0);
+  return date;
+};
+
 const TimeSection = ({
   selectedDate,
   selectedTime,
@@ -73,17 +88,16 @@ const TimeSection = ({
 
         {showTimePicker && (
           <DateTimePicker
-            value={selectedTime ? new Date(selectedTime) : new Date()}
+            value={getTimeAsDate(selectedTime)}
             mode="time"
             is24Hour={false}
-            display="default"
-            onChange={(event, time) => {
+            display="spinner"
+            onChange={(event, date) => {
               onShowTimePicker(false);
-              if (time) {
-                onTimeSelect(time);
+              if (event.type === 'set' && date) {
+                onTimeSelect(date);
               }
             }}
-            minuteInterval={15}
           />
         )}
       </View>
