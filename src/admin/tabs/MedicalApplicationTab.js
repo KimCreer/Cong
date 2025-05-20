@@ -308,9 +308,25 @@ const MedicalApplicationTab = () => {
         try {
             setIsProcessing(true);
             
+            // Use the filtered applications based on search and all active filters
+            const filteredApps = medicalApps.filter(app => {
+                const matchesSearch = searchQuery === '' || 
+                    app.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    app.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    app.contactNumber?.includes(searchQuery) ||
+                    app.programName?.toLowerCase().includes(searchQuery.toLowerCase());
+                
+                // Apply date filter if active
+                const matchesDate = !dateFilter || 
+                    (app.createdAt && 
+                     new Date(app.createdAt.toDate()).toDateString() === new Date(dateFilter).toDateString());
+                
+                return matchesSearch && matchesDate;
+            });
+            
             const dataToExport = selectedApplications.length > 0
-                ? medicalApps.filter(app => selectedApplications.includes(app.id))
-                : medicalApps;
+                ? filteredApps.filter(app => selectedApplications.includes(app.id))
+                : filteredApps;
             
             if (dataToExport.length === 0) {
                 Alert.alert("No Data", "There are no applications to export");
@@ -324,22 +340,15 @@ const MedicalApplicationTab = () => {
                 "Address": app.address || "N/A",
                 "Medical Condition": app.medicalCondition || "N/A",
                 "Patient Status": app.patientStatus || "N/A",
-                "Program Name": app.programName || "N/A",
-                "Program Type": app.programType === 'extensive' ? 'Extensive Program' : 'Basic Program',
-                "Estimated Cost": app.estimatedCost ? `₱${app.estimatedCost}` : "N/A",
-                "Assistance Type": app.assistanceType || "Not specified",
-                "Status": formatStatusText(app.status),
-                "Submitted Date": app.createdAt ? app.createdAt.toDate().toLocaleString() : "N/A",
-                "Last Updated": app.updatedAt ? app.updatedAt.toDate().toLocaleString() : "N/A"
+                "Hospitals": app.programName || "N/A",
+                "Assistance Type": app.assistanceType || "Not specified"
             }));
             
             const ws = XLSX.utils.json_to_sheet(excelData);
             
             const wscols = [
                 {wch: 20}, {wch: 25}, {wch: 15}, {wch: 25}, 
-                {wch: 25}, {wch: 15}, {wch: 30}, {wch: 20}, 
-                {wch: 15}, {wch: 20}, {wch: 12}, {wch: 25}, 
-                {wch: 25}
+                {wch: 25}, {wch: 15}, {wch: 30}, {wch: 20}
             ];
             ws['!cols'] = wscols;
             

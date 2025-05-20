@@ -112,6 +112,67 @@ const ProjectDetails = () => {
         }).format(amount || 0).replace('PHP', '₱');
     };
 
+    // Helper function to get relevant details based on project type
+    const getProjectDetails = () => {
+        switch (project.projectType) {
+            case 'infrastructure':
+                return [
+                    { icon: 'user-tie', label: 'Contractor', value: project.contractor },
+                    { icon: 'map-marker-alt', label: 'Location', value: project.location },
+                    { icon: 'money-bill-wave', label: 'Contract Amount', value: formatCurrency(project.contractAmount) }
+                ];
+            case 'educational':
+            case 'youth':
+                return [
+                    { icon: 'building', label: 'Partner Agency', value: project.partnerAgency },
+                    { icon: 'users', label: 'Target Participants', value: project.targetParticipants },
+                    { icon: 'clipboard-list', label: 'Program Type', value: project.programType },
+                    { icon: 'map-marker-alt', label: 'Venue', value: project.venue },
+                    { icon: 'calendar-alt', label: 'Start Date', value: project.startDate },
+                    { icon: 'calendar-alt', label: 'End Date', value: project.endDate }
+                ];
+            case 'health':
+            case 'livelihood':
+            case 'social':
+            case 'senior':
+                return [
+                    { icon: 'building', label: 'Partner Agency', value: project.partnerAgency },
+                    { icon: 'users', label: 'Beneficiaries', value: project.beneficiaries },
+                    { icon: 'clipboard-list', label: 'Program Type', value: project.programType },
+                    { icon: 'money-bill-wave', label: 'Budget', value: formatCurrency(project.budget) },
+                    { icon: 'map-marker-alt', label: 'Venue', value: project.venue }
+                ];
+            case 'environmental':
+                return [
+                    { icon: 'building', label: 'Partner Agency', value: project.partnerAgency },
+                    { icon: 'users', label: 'Target Participants', value: project.targetParticipants },
+                    { icon: 'map-marker-alt', label: 'Location', value: project.location },
+                    { icon: 'box', label: 'Materials', value: project.materials }
+                ];
+            case 'sports':
+                return [
+                    { icon: 'building', label: 'Partner Agency', value: project.partnerAgency },
+                    { icon: 'users', label: 'Target Participants', value: project.targetParticipants },
+                    { icon: 'clipboard-list', label: 'Program Type', value: project.programType },
+                    { icon: 'map-marker-alt', label: 'Venue', value: project.venue },
+                    { icon: 'dumbbell', label: 'Equipment', value: project.equipment }
+                ];
+            case 'disaster':
+                return [
+                    { icon: 'building', label: 'Partner Agency', value: project.partnerAgency },
+                    { icon: 'users', label: 'Beneficiaries', value: project.beneficiaries },
+                    { icon: 'clipboard-list', label: 'Program Type', value: project.programType },
+                    { icon: 'money-bill-wave', label: 'Budget', value: formatCurrency(project.budget) },
+                    { icon: 'map-marker-alt', label: 'Location', value: project.location }
+                ];
+            default:
+                return [
+                    { icon: 'user-tie', label: 'Contractor', value: project.contractor },
+                    { icon: 'money-bill-wave', label: 'Contract Amount', value: formatCurrency(project.contractAmount) }
+                ];
+        }
+    };
+
     return (
         <ScrollView contentContainerStyle={styles.container}>
             <View style={styles.header}>
@@ -144,53 +205,55 @@ const ProjectDetails = () => {
                     </View>
                 </View>
 
+                {/* Project Type Section */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Basic Information</Text>
-                    
-                    <DetailRow 
-                        icon="user-tie" 
-                        label="Contractor" 
-                        value={project.contractor || 'Not specified'} 
-                    />
-                    
-                    <DetailRow 
-                        icon="map-marker-alt" 
-                        label="Location" 
-                        value={project.location || 'Not specified'} 
-                    />
-                    
-                    <DetailRow 
-                        icon="money-bill-wave" 
-                        label="Contract Amount" 
-                        value={formatCurrency(project.contractAmount)} 
-                    />
+                    <Text style={styles.sectionTitle}>Project Type</Text>
+                    <Text style={styles.projectTypeText}>{project.projectType?.charAt(0).toUpperCase() + project.projectType?.slice(1)}</Text>
                 </View>
 
+                {/* Dynamic Details Section */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Progress</Text>
-                    
-                    <View style={styles.progressContainer}>
-                        <View style={styles.progressHeader}>
-                            <Text style={styles.progressLabel}>Accomplishment:</Text>
-                            <Text style={styles.progressPercentage}>{project.accomplishment}</Text>
-                        </View>
-                        <View style={styles.progressBarBackground}>
-                            <View style={[
-                                styles.progressBarFill,
-                                { 
-                                    width: `${project.progressPercentage}%`,
-                                    backgroundColor: getStatusColor(project.status)
-                                }
-                            ]} />
+                    <Text style={styles.sectionTitle}>Details</Text>
+                    {getProjectDetails().map((detail, idx) => (
+                        <DetailRow 
+                            key={idx}
+                            icon={detail.icon}
+                            label={detail.label}
+                            value={detail.value || 'Not specified'}
+                        />
+                    ))}
+                </View>
+
+                {/* Progress for infrastructure only */}
+                {project.projectType === 'infrastructure' && (
+                    <View style={styles.section}>
+                        <Text style={styles.sectionTitle}>Progress</Text>
+                        <View style={styles.progressContainer}>
+                            <View style={styles.progressHeader}>
+                                <Text style={styles.progressLabel}>Accomplishment:</Text>
+                                <Text style={styles.progressPercentage}>{project.accomplishment}</Text>
+                            </View>
+                            <View style={styles.progressBarBackground}>
+                                <View style={[
+                                    styles.progressBarFill,
+                                    { 
+                                        width: `${project.progressPercentage}%`,
+                                        backgroundColor: getStatusColor(project.status)
+                                    }
+                                ]} />
+                            </View>
                         </View>
                     </View>
-                    
+                )}
+
+                {/* Dates Section */}
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Dates</Text>
                     <DetailRow 
                         icon="calendar-alt" 
                         label="Date Created" 
                         value={project.formattedCreatedAt} 
                     />
-                    
                     {project.updatedAt && (
                         <DetailRow 
                             icon="edit" 
@@ -208,8 +271,6 @@ const ProjectDetails = () => {
                         </View>
                     </View>
                 )}
-
-          
             </View>
         </ScrollView>
     );
@@ -401,6 +462,12 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '600',
         marginLeft: 8,
+    },
+    projectTypeText: {
+        fontSize: 15,
+        color: '#003366',
+        fontWeight: 'bold',
+        marginBottom: 8,
     },
 });
 

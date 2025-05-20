@@ -28,7 +28,19 @@ const CreateProjectModal = ({ visible, onClose, slideAnim }) => {
         remarks: "",
         status: "active",
         imageUrl: "",
-        image: null
+        image: null,
+        projectType: "infrastructure",
+        beneficiaries: "",
+        startDate: "",
+        endDate: "",
+        budget: "",
+        partnerAgency: "",
+        targetParticipants: "",
+        programType: "",
+        equipment: "",
+        materials: "",
+        trainingHours: "",
+        venue: ""
     });
     const [uploading, setUploading] = useState(false);
     const [errors, setErrors] = useState({});
@@ -102,6 +114,79 @@ const CreateProjectModal = ({ visible, onClose, slideAnim }) => {
         }
     };
 
+    const projectTypeFields = {
+        infrastructure: [
+            { id: 'contractor', label: 'Contractor Name', required: true, type: 'text' },
+            { id: 'contractAmount', label: 'Contract Amount', required: false, type: 'numeric' },
+            { id: 'accomplishment', label: 'Accomplishment', required: false, type: 'text' },
+            { id: 'location', label: 'Location', required: true, type: 'text' }
+        ],
+        educational: [
+            { id: 'partnerAgency', label: 'Partner Agency', required: true, type: 'text' },
+            { id: 'targetParticipants', label: 'Target Participants', required: true, type: 'numeric' },
+            { id: 'programType', label: 'Program Type', required: true, type: 'text' },
+            { id: 'venue', label: 'Venue', required: true, type: 'text' },
+            { id: 'startDate', label: 'Start Date', required: true, type: 'date' },
+            { id: 'endDate', label: 'End Date', required: true, type: 'date' }
+        ],
+        health: [
+            { id: 'partnerAgency', label: 'Partner Agency', required: true, type: 'text' },
+            { id: 'beneficiaries', label: 'Target Beneficiaries', required: true, type: 'numeric' },
+            { id: 'programType', label: 'Program Type', required: true, type: 'text' },
+            { id: 'venue', label: 'Venue', required: true, type: 'text' },
+            { id: 'startDate', label: 'Start Date', required: true, type: 'date' }
+        ],
+        livelihood: [
+            { id: 'partnerAgency', label: 'Partner Agency', required: true, type: 'text' },
+            { id: 'beneficiaries', label: 'Target Beneficiaries', required: true, type: 'numeric' },
+            { id: 'programType', label: 'Program Type', required: true, type: 'text' },
+            { id: 'budget', label: 'Budget', required: true, type: 'numeric' },
+            { id: 'startDate', label: 'Start Date', required: true, type: 'date' }
+        ],
+        social: [
+            { id: 'partnerAgency', label: 'Partner Agency', required: true, type: 'text' },
+            { id: 'beneficiaries', label: 'Target Beneficiaries', required: true, type: 'numeric' },
+            { id: 'programType', label: 'Program Type', required: true, type: 'text' },
+            { id: 'budget', label: 'Budget', required: true, type: 'numeric' },
+            { id: 'venue', label: 'Venue', required: true, type: 'text' }
+        ],
+        environmental: [
+            { id: 'partnerAgency', label: 'Partner Agency', required: true, type: 'text' },
+            { id: 'targetParticipants', label: 'Target Participants', required: true, type: 'numeric' },
+            { id: 'programType', label: 'Program Type', required: true, type: 'text' },
+            { id: 'location', label: 'Location', required: true, type: 'text' },
+            { id: 'materials', label: 'Required Materials', required: true, type: 'text' }
+        ],
+        sports: [
+            { id: 'partnerAgency', label: 'Partner Agency', required: true, type: 'text' },
+            { id: 'targetParticipants', label: 'Target Participants', required: true, type: 'numeric' },
+            { id: 'programType', label: 'Program Type', required: true, type: 'text' },
+            { id: 'venue', label: 'Venue', required: true, type: 'text' },
+            { id: 'equipment', label: 'Required Equipment', required: true, type: 'text' }
+        ],
+        disaster: [
+            { id: 'partnerAgency', label: 'Partner Agency', required: true, type: 'text' },
+            { id: 'beneficiaries', label: 'Target Beneficiaries', required: true, type: 'numeric' },
+            { id: 'programType', label: 'Program Type', required: true, type: 'text' },
+            { id: 'budget', label: 'Budget', required: true, type: 'numeric' },
+            { id: 'location', label: 'Location', required: true, type: 'text' }
+        ],
+        youth: [
+            { id: 'partnerAgency', label: 'Partner Agency', required: true, type: 'text' },
+            { id: 'targetParticipants', label: 'Target Participants', required: true, type: 'numeric' },
+            { id: 'programType', label: 'Program Type', required: true, type: 'text' },
+            { id: 'venue', label: 'Venue', required: true, type: 'text' },
+            { id: 'trainingHours', label: 'Training Hours', required: true, type: 'numeric' }
+        ],
+        senior: [
+            { id: 'partnerAgency', label: 'Partner Agency', required: true, type: 'text' },
+            { id: 'beneficiaries', label: 'Target Beneficiaries', required: true, type: 'numeric' },
+            { id: 'programType', label: 'Program Type', required: true, type: 'text' },
+            { id: 'venue', label: 'Venue', required: true, type: 'text' },
+            { id: 'budget', label: 'Budget', required: true, type: 'numeric' }
+        ]
+    };
+
     const handleCreateProject = async () => {
         const validation = validateProjectForm(formData);
         setErrors(validation.errors);
@@ -125,6 +210,18 @@ const CreateProjectModal = ({ visible, onClose, slideAnim }) => {
                 remarks: formData.remarks,
                 status: formData.status,
                 imageUrl: uploadedImageUrl || "",
+                projectType: formData.projectType,
+                beneficiaries: formData.beneficiaries,
+                startDate: formData.startDate,
+                endDate: formData.endDate,
+                budget: formData.budget,
+                partnerAgency: formData.partnerAgency,
+                targetParticipants: formData.targetParticipants,
+                programType: formData.programType,
+                equipment: formData.equipment,
+                materials: formData.materials,
+                trainingHours: formData.trainingHours,
+                venue: formData.venue,
                 createdAt: new Date()
             });
             
@@ -147,7 +244,19 @@ const CreateProjectModal = ({ visible, onClose, slideAnim }) => {
             remarks: "",
             status: "active",
             imageUrl: "",
-            image: null
+            image: null,
+            projectType: "infrastructure",
+            beneficiaries: "",
+            startDate: "",
+            endDate: "",
+            budget: "",
+            partnerAgency: "",
+            targetParticipants: "",
+            programType: "",
+            equipment: "",
+            materials: "",
+            trainingHours: "",
+            venue: ""
         });
         setErrors({});
     };
@@ -194,7 +303,6 @@ const CreateProjectModal = ({ visible, onClose, slideAnim }) => {
                         </TouchableOpacity>
                     </View>
 
-
                     <View style={styles.formGroup}>
                         <Text style={styles.inputLabel}>Project Title <Text style={styles.required}>*</Text></Text>
                         <TextInput
@@ -213,67 +321,60 @@ const CreateProjectModal = ({ visible, onClose, slideAnim }) => {
                     </View>
 
                     <View style={styles.formGroup}>
-                        <Text style={styles.inputLabel}>Contractor Name <Text style={styles.required}>*</Text></Text>
-                        <TextInput
-                            style={[
-                                styles.inputField,
-                                errors.contractor && styles.inputError
-                            ]}
-                            placeholder="Enter contractor name"
-                            value={formData.contractor}
-                            onChangeText={(text) => handleInputChange('contractor', text)}
-                            returnKeyType="next"
-                        />
-                        {errors.contractor && (
-                            <Text style={styles.errorText}>{errors.contractor}</Text>
-                        )}
+                        <Text style={styles.inputLabel}>Project Type <Text style={styles.required}>*</Text></Text>
+                        <View style={styles.projectTypeOptions}>
+                            {[
+                                { id: 'infrastructure', label: 'Infrastructure' },
+                                { id: 'educational', label: 'Educational' },
+                                { id: 'health', label: 'Health & Medical' },
+                                { id: 'livelihood', label: 'Livelihood' },
+                                { id: 'social', label: 'Social Services' },
+                                { id: 'environmental', label: 'Environmental' },
+                                { id: 'sports', label: 'Sports & Recreation' },
+                                { id: 'disaster', label: 'Disaster Response' },
+                                { id: 'youth', label: 'Youth Development' },
+                                { id: 'senior', label: 'Senior Citizen' }
+                            ].map((type) => (
+                                <Pressable 
+                                    key={type.id}
+                                    style={[
+                                        styles.projectTypeOption,
+                                        formData.projectType === type.id && styles.projectTypeOptionSelected
+                                    ]}
+                                    onPress={() => handleInputChange('projectType', type.id)}
+                                >
+                                    <Text style={[
+                                        styles.projectTypeText,
+                                        formData.projectType === type.id && styles.projectTypeTextSelected
+                                    ]}>
+                                        {type.label}
+                                    </Text>
+                                </Pressable>
+                            ))}
+                        </View>
                     </View>
 
-                    <View style={styles.formGroup}>
-                        <Text style={styles.inputLabel}>Contract Amount</Text>
-                        <TextInput
-                            style={[
-                                styles.inputField,
-                                errors.contractAmount && styles.inputError
-                            ]}
-                            placeholder="Enter amount in ₱"
-                            keyboardType="numeric"
-                            value={formData.contractAmount}
-                            onChangeText={(text) => handleInputChange('contractAmount', text)}
-                            returnKeyType="next"
-                        />
-                        {errors.contractAmount && (
-                            <Text style={styles.errorText}>{errors.contractAmount}</Text>
-                        )}
-                    </View>
-
-                    <View style={styles.formGroup}>
-                        <Text style={styles.inputLabel}>Accomplishment</Text>
-                        <TextInput
-                            style={[
-                                styles.inputField,
-                                errors.accomplishment && styles.inputError
-                            ]}
-                            placeholder="Enter progress (e.g., 50%)"
-                            value={formData.accomplishment}
-                            onChangeText={(text) => handleInputChange('accomplishment', text)}
-                            returnKeyType="next"
-                        />
-                        {errors.accomplishment && (
-                            <Text style={styles.errorText}>{errors.accomplishment}</Text>
-                        )}
-                    </View>
-
-                    <View style={styles.formGroup}>
-                        <Text style={styles.inputLabel}>Location</Text>
-                        <TextInput
-                            style={styles.inputField}
-                            placeholder="Enter project location"
-                            value={formData.location}
-                            onChangeText={(text) => handleInputChange('location', text)}
-                            returnKeyType="next"
-                        />
-                    </View>
+                    {projectTypeFields[formData.projectType]?.map((field) => (
+                        <View key={field.id} style={styles.formGroup}>
+                            <Text style={styles.inputLabel}>
+                                {field.label} {field.required && <Text style={styles.required}>*</Text>}
+                            </Text>
+                            <TextInput
+                                style={[
+                                    styles.inputField,
+                                    errors[field.id] && styles.inputError
+                                ]}
+                                placeholder={`Enter ${field.label.toLowerCase()}`}
+                                value={formData[field.id]}
+                                onChangeText={(text) => handleInputChange(field.id, text)}
+                                keyboardType={field.type === 'numeric' ? 'numeric' : 'default'}
+                                returnKeyType="next"
+                            />
+                            {errors[field.id] && (
+                                <Text style={styles.errorText}>{errors[field.id]}</Text>
+                            )}
+                        </View>
+                    ))}
 
                     <View style={styles.formGroup}>
                         <Text style={styles.inputLabel}>Remarks</Text>
@@ -381,6 +482,8 @@ const styles = StyleSheet.create({
         left: 0,
         right: 0,
         bottom: 0,
+        zIndex: 1000,
+        elevation: 1000,
     },
     bottomModalOverlay: {
         ...StyleSheet.absoluteFillObject,
@@ -555,7 +658,9 @@ const styles = StyleSheet.create({
         marginRight: 10,
     },
     submitButton: {
-        backgroundColor: '#003366',
+        backgroundColor: '#fff',
+        borderWidth: 1,
+        borderColor: '#003366',
     },
     modalButtonText: {
         fontSize: 16,
@@ -566,6 +671,36 @@ const styles = StyleSheet.create({
     },
     submitButtonText: {
         color: '#FFF',  
+    },
+    projectTypeOptions: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+        marginTop: 10,
+        justifyContent: 'flex-start',
+    },
+    projectTypeOption: {
+        paddingHorizontal: 15,
+        paddingVertical: 8,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: '#bbb',
+        backgroundColor: '#f9f9f9',
+        marginRight: 8,
+        marginBottom: 8,
+        elevation: 0,
+    },
+    projectTypeOptionSelected: {
+        borderColor: '#003366',
+        backgroundColor: 'rgba(0, 51, 102, 0.12)',
+    },
+    projectTypeText: {
+        fontSize: 14,
+        color: '#666',
+    },
+    projectTypeTextSelected: {
+        color: '#003366',
+        fontWeight: '600',
     },
 });
 

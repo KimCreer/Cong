@@ -13,19 +13,36 @@ const AppointmentCard = ({
     onSchedule, 
     onViewDetails,
     allowHistoryActions,
-    onCancel
+    onCancel,
+    onStatusUpdate
 }) => {
     const isActuallyScheduled = appointment.isCourtesy 
         ? appointment.isScheduled && appointment.status === 'Confirmed'
         : appointment.isScheduled;
 
+    const showRescheduleButton = appointment.isCourtesy && 
+        (appointment.status === 'Confirmed' || appointment.status === 'Cancelled' || appointment.status === 'Rejected');
+
+    const showConfirmButton = !isHistory && 
+        !appointment.isCourtesy && 
+        appointment.status !== 'Confirmed';
+
+    const showRejectButton = !isHistory && 
+        !appointment.isCourtesy && 
+        appointment.status !== 'Cancelled' && 
+        appointment.status !== 'Rejected';
+
     return (
         <View style={[
             styles.appointmentCard,
             appointment.isCourtesy && styles.courtesyCard,
-            isActuallyScheduled && styles.scheduledCard
+            isActuallyScheduled && styles.scheduledCard,
+            showActionButtons[appointment.id] && styles.expandedCard
         ]}>
-            <TouchableOpacity onPress={() => onToggleActions(appointment.id)}>
+            <TouchableOpacity 
+                onPress={() => onToggleActions(appointment.id)}
+                style={styles.cardTouchable}
+            >
                 <View style={styles.cardHeader}>
                     <View style={[
                         styles.typeIndicator, 
@@ -151,10 +168,12 @@ const AppointmentCard = ({
                     {((!isHistory && appointment.isCourtesy) || (isHistory && allowHistoryActions && appointment.isCourtesy)) && (
                         <TouchableOpacity 
                             style={[styles.actionButton, styles.scheduleButton]}
-                            onPress={() => onSchedule && onSchedule(appointment.id)}
+                            onPress={() => onSchedule(appointment.id)}
                         >
                             <FontAwesome5 name="calendar-plus" size={14} color="#fff" />
-                            <Text style={styles.actionButtonText}>{isHistory ? 'Reschedule' : 'Schedule'}</Text>
+                            <Text style={styles.actionButtonText}>
+                                {showRescheduleButton ? 'Reschedule' : 'Schedule'}
+                            </Text>
                         </TouchableOpacity>
                     )}
                     {((!isHistory && appointment.isCourtesy) || (isHistory && allowHistoryActions && (appointment.isCourtesy || appointment.typeInfo.label === 'Medical Finance'))) && (
@@ -166,7 +185,7 @@ const AppointmentCard = ({
                             <Text style={styles.actionButtonText}>Cancel</Text>
                         </TouchableOpacity>
                     )}
-                    {(!isHistory && !appointment.isCourtesy) && (
+                    {showConfirmButton && (
                         <TouchableOpacity 
                             style={[styles.actionButton, styles.confirmButton]}
                             onPress={() => onConfirm(appointment.id)}
@@ -175,13 +194,22 @@ const AppointmentCard = ({
                             <Text style={styles.actionButtonText}>Confirm</Text>
                         </TouchableOpacity>
                     )}
-                    {(!isHistory && !appointment.isCourtesy) && (
+                    {showRejectButton && (
                         <TouchableOpacity 
                             style={[styles.actionButton, styles.rejectButton]}
                             onPress={() => onReject(appointment.id)}
                         >
                             <FontAwesome5 name="times" size={14} color="#fff" />
                             <Text style={styles.actionButtonText}>Reject</Text>
+                        </TouchableOpacity>
+                    )}
+                    {isHistory && allowHistoryActions && (
+                        <TouchableOpacity 
+                            style={[styles.actionButton, styles.updateButton]}
+                            onPress={() => onStatusUpdate && onStatusUpdate()}
+                        >
+                            <FontAwesome5 name="sync" size={14} color="#fff" />
+                            <Text style={styles.actionButtonText}>Update Status</Text>
                         </TouchableOpacity>
                     )}
                     <TouchableOpacity 
@@ -200,74 +228,102 @@ const AppointmentCard = ({
 const styles = StyleSheet.create({
     appointmentCard: {
         backgroundColor: '#fff',
-        borderRadius: 10,
-        margin: 10,
-        padding: 15,
+        borderRadius: 12,
+        margin: 8,
+        padding: 16,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
+        shadowRadius: 8,
+        elevation: 4,
+        borderWidth: 1,
+        borderColor: 'rgba(0,0,0,0.05)',
+    },
+    expandedCard: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        elevation: 8,
+    },
+    cardTouchable: {
+        borderRadius: 12,
     },
     courtesyCard: {
         borderLeftWidth: 4,
         borderLeftColor: '#6c5ce7',
-        backgroundColor: '#f8f5ff'
+        backgroundColor: '#f8f5ff',
     },
     scheduledCard: {
         borderLeftWidth: 4,
         borderLeftColor: '#28a745',
+        backgroundColor: '#f8fff9',
     },
     cardHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 10,
+        marginBottom: 12,
     },
     typeIndicator: {
         justifyContent: 'center',
         alignItems: 'center',
-        marginRight: 10,
+        marginRight: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
     },
     appointmentTitle: {
         flex: 1,
         fontSize: 16,
         fontWeight: '600',
         color: '#333',
+        marginRight: 8,
     },
     courtesyTitle: {
         fontSize: 18,
         fontWeight: '700',
-        color: '#4a3c8a'
+        color: '#4a3c8a',
     },
     statusBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 3,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
         borderRadius: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 1,
     },
     statusText: {
         fontSize: 12,
         fontWeight: '600',
+        textTransform: 'capitalize',
     },
     appointmentDetails: {
-        marginBottom: 10,
+        marginBottom: 12,
+        paddingHorizontal: 4,
     },
     detailRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 5,
+        marginBottom: 8,
+        paddingVertical: 2,
     },
     detailText: {
-        marginLeft: 8,
+        marginLeft: 10,
         fontSize: 14,
         color: '#666',
+        flex: 1,
     },
     cardFooter: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingTop: 10,
+        paddingTop: 12,
         borderTopWidth: 1,
-        borderTopColor: '#f0f0f0',
+        borderTopColor: 'rgba(0,0,0,0.05)',
     },
     typeText: {
         fontSize: 12,
@@ -276,23 +332,31 @@ const styles = StyleSheet.create({
     },
     courtesyTypeText: {
         color: '#6c5ce7',
-        fontWeight: '600'
+        fontWeight: '600',
     },
     actionButtonsContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginTop: 10,
-        flexWrap: 'wrap'
+        marginTop: 12,
+        flexWrap: 'wrap',
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(0,0,0,0.05)',
     },
     actionButton: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingVertical: 8,
         paddingHorizontal: 12,
-        borderRadius: 6,
+        borderRadius: 8,
         justifyContent: 'center',
-        marginVertical: 5,
-        minWidth: '30%'
+        marginVertical: 4,
+        minWidth: '30%',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
     },
     confirmButton: {
         backgroundColor: '#28a745',
@@ -310,23 +374,10 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: '600',
         fontSize: 12,
-        marginLeft: 5
+        marginLeft: 6,
     },
-    scheduledBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#e8f5e9',
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 6,
-        marginVertical: 5,
-        minWidth: '30%'
-    },
-    scheduledText: {
-        color: '#28a745',
-        fontWeight: '600',
-        fontSize: 12,
-        marginLeft: 5
+    updateButton: {
+        backgroundColor: '#6c5ce7',
     },
 });
 

@@ -40,6 +40,62 @@ const ProjectCard = ({ project, navigation, onEdit, formatCurrency, getStatusCol
         }
     };
 
+    // Helper function to get relevant details based on project type
+    const getProjectDetails = () => {
+        switch (project.projectType) {
+            case 'infrastructure':
+                return [
+                    { label: 'Contractor', value: project.contractor },
+                    { label: 'Amount', value: formatCurrency(project.contractAmount) },
+                    { label: 'Location', value: project.location }
+                ];
+            case 'educational':
+            case 'youth':
+                return [
+                    { label: 'Partner Agency', value: project.partnerAgency },
+                    { label: 'Target Participants', value: project.targetParticipants },
+                    { label: 'Program Type', value: project.programType },
+                    { label: 'Venue', value: project.venue }
+                ];
+            case 'health':
+            case 'livelihood':
+            case 'social':
+            case 'senior':
+                return [
+                    { label: 'Partner Agency', value: project.partnerAgency },
+                    { label: 'Beneficiaries', value: project.beneficiaries },
+                    { label: 'Program Type', value: project.programType },
+                    { label: 'Budget', value: formatCurrency(project.budget) }
+                ];
+            case 'environmental':
+                return [
+                    { label: 'Partner Agency', value: project.partnerAgency },
+                    { label: 'Target Participants', value: project.targetParticipants },
+                    { label: 'Location', value: project.location },
+                    { label: 'Materials', value: project.materials }
+                ];
+            case 'sports':
+                return [
+                    { label: 'Partner Agency', value: project.partnerAgency },
+                    { label: 'Target Participants', value: project.targetParticipants },
+                    { label: 'Program Type', value: project.programType },
+                    { label: 'Equipment', value: project.equipment }
+                ];
+            case 'disaster':
+                return [
+                    { label: 'Partner Agency', value: project.partnerAgency },
+                    { label: 'Beneficiaries', value: project.beneficiaries },
+                    { label: 'Program Type', value: project.programType },
+                    { label: 'Location', value: project.location }
+                ];
+            default:
+                return [
+                    { label: 'Contractor', value: project.contractor },
+                    { label: 'Amount', value: formatCurrency(project.contractAmount) }
+                ];
+        }
+    };
+
     return (
         <TouchableOpacity 
             style={styles.projectCard}
@@ -54,9 +110,14 @@ const ProjectCard = ({ project, navigation, onEdit, formatCurrency, getStatusCol
             )}
             
             <View style={styles.cardHeader}>
-                <Text style={styles.projectTitle} numberOfLines={1} ellipsizeMode="tail">
-                    {project.title}
-                </Text>
+                <View style={styles.titleContainer}>
+                    <Text style={styles.projectTitle} numberOfLines={1} ellipsizeMode="tail">
+                        {project.title}
+                    </Text>
+                    <Text style={styles.projectType}>
+                        {project.projectType?.charAt(0).toUpperCase() + project.projectType?.slice(1) || 'N/A'}
+                    </Text>
+                </View>
                 <View style={[
                     styles.statusBadge,
                     { 
@@ -73,31 +134,30 @@ const ProjectCard = ({ project, navigation, onEdit, formatCurrency, getStatusCol
                 </View>
             </View>
             
-            <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Contractor:</Text>
-                <Text style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">
-                    {project.contractor || 'N/A'}
-                </Text>
-            </View>
-            
-            <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Amount:</Text>
-                <Text style={styles.detailValue}>{formatCurrency(project.contractAmount)}</Text>
-            </View>
-            
-            <View style={styles.progressRow}>
-                <Text style={styles.detailLabel}>Progress:</Text>
-                <View style={styles.progressContainer}>
-                    <View style={[
-                        styles.progressBar,
-                        { 
-                            width: `${parseInt(project.accomplishment) || 0}%`,
-                            backgroundColor: getStatusColor(project.status)
-                        }
-                    ]} />
-                    <Text style={styles.progressText}>{project.accomplishment || '0%'}</Text>
+            {getProjectDetails().map((detail, index) => (
+                <View key={index} style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>{detail.label}:</Text>
+                    <Text style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">
+                        {detail.value || 'N/A'}
+                    </Text>
                 </View>
-            </View>
+            ))}
+            
+            {project.projectType === 'infrastructure' && (
+                <View style={styles.progressRow}>
+                    <Text style={styles.detailLabel}>Progress:</Text>
+                    <View style={styles.progressContainer}>
+                        <View style={[
+                            styles.progressBar,
+                            { 
+                                width: `${parseInt(project.accomplishment) || 0}%`,
+                                backgroundColor: getStatusColor(project.status)
+                            }
+                        ]} />
+                        <Text style={styles.progressText}>{project.accomplishment || '0%'}</Text>
+                    </View>
+                </View>
+            )}
             
             <View style={styles.cardFooter}>
                 <View style={styles.dateContainer}>
@@ -156,12 +216,21 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: '#f0f0f0',
     },
+    titleContainer: {
+        flex: 1,
+        marginRight: 10,
+    },
     projectTitle: {
         fontSize: 16,
         fontWeight: 'bold',
         color: '#003366',
         flex: 1,
         marginRight: 10,
+    },
+    projectType: {
+        fontSize: 12,
+        color: '#666',
+        marginTop: 2,
     },
     statusBadge: {
         paddingHorizontal: 10,

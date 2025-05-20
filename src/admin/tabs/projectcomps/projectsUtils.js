@@ -72,6 +72,20 @@ export const setupProjectsListener = (callback) => {
     });
 };
 
+// Define required fields for each project type
+const projectTypeRequiredFields = {
+    infrastructure: ['contractor', 'location'],
+    educational: ['partnerAgency', 'targetParticipants', 'programType', 'venue', 'startDate', 'endDate'],
+    health: ['partnerAgency', 'beneficiaries', 'programType', 'venue', 'startDate'],
+    livelihood: ['partnerAgency', 'beneficiaries', 'programType', 'budget', 'startDate'],
+    social: ['partnerAgency', 'beneficiaries', 'programType', 'budget', 'venue'],
+    environmental: ['partnerAgency', 'targetParticipants', 'programType', 'location', 'materials'],
+    sports: ['partnerAgency', 'targetParticipants', 'programType', 'venue', 'equipment'],
+    disaster: ['partnerAgency', 'beneficiaries', 'programType', 'budget', 'location'],
+    youth: ['partnerAgency', 'targetParticipants', 'programType', 'venue', 'trainingHours'],
+    senior: ['partnerAgency', 'beneficiaries', 'programType', 'venue', 'budget']
+};
+
 // Validate project form data
 export const validateProjectForm = (formData) => {
     const errors = {};
@@ -80,27 +94,47 @@ export const validateProjectForm = (formData) => {
         errors.title = 'Project title is required';
     }
     
-    if (!formData.contractor || formData.contractor.trim() === '') {
-        errors.contractor = 'Contractor name is required';
+    if (!formData.projectType) {
+        errors.projectType = 'Project type is required';
     }
-    
-    if (formData.contractAmount && isNaN(parseFloat(formData.contractAmount))) {
-        errors.contractAmount = 'Invalid amount';
-    }
-    
-    if (formData.accomplishment) {
-        const accomplishmentValue = parseFloat(formData.accomplishment.replace('%', ''));
-        if (isNaN(accomplishmentValue)) {
-            errors.accomplishment = 'Invalid accomplishment value';
-        } else if (accomplishmentValue < 0 || accomplishmentValue > 100) {
-            errors.accomplishment = 'Must be between 0% and 100%';
+
+    // Validate required fields based on project type
+    const requiredFields = projectTypeRequiredFields[formData.projectType] || [];
+    requiredFields.forEach(field => {
+        if (!formData[field] || formData[field].trim() === '') {
+            errors[field] = `${field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1')} is required`;
         }
+    });
+    
+    // Validate numeric fields
+    const numericFields = ['contractAmount', 'budget', 'targetParticipants', 'beneficiaries', 'trainingHours'];
+    numericFields.forEach(field => {
+        if (formData[field] && isNaN(parseFloat(formData[field]))) {
+            errors[field] = 'Invalid numeric value';
+        }
+    });
+    
+    // Validate dates
+    if (formData.startDate && !isValidDate(formData.startDate)) {
+        errors.startDate = 'Invalid start date';
+    }
+    if (formData.endDate && !isValidDate(formData.endDate)) {
+        errors.endDate = 'Invalid end date';
+    }
+    if (formData.startDate && formData.endDate && new Date(formData.startDate) > new Date(formData.endDate)) {
+        errors.endDate = 'End date must be after start date';
     }
     
     return {
         isValid: Object.keys(errors).length === 0,
         errors
     };
+};
+
+// Helper function to validate date format
+const isValidDate = (dateString) => {
+    const date = new Date(dateString);
+    return date instanceof Date && !isNaN(date);
 };
 
 // Helper for initial project form state
@@ -114,6 +148,18 @@ export const getInitialProjectFormState = (project = null) => {
         remarks: project?.remarks || "",
         status: project?.status || "active",
         imageUrl: project?.imageUrl || "",
-        image: null
+        image: null,
+        projectType: project?.projectType || "infrastructure",
+        beneficiaries: project?.beneficiaries || "",
+        startDate: project?.startDate || "",
+        endDate: project?.endDate || "",
+        budget: project?.budget || "",
+        partnerAgency: project?.partnerAgency || "",
+        targetParticipants: project?.targetParticipants || "",
+        programType: project?.programType || "",
+        equipment: project?.equipment || "",
+        materials: project?.materials || "",
+        trainingHours: project?.trainingHours || "",
+        venue: project?.venue || ""
     };
 };

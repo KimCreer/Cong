@@ -17,7 +17,7 @@ export default function InfoScreen() {
     };
 
     return (
-        <View style={styles.container}>
+        <View style={styles.safeContainer}>
             <StatusBar backgroundColor="#003366" barStyle="light-content" />
             
             {/* Header Section with Gradient and Back Button */}
@@ -308,9 +308,9 @@ export default function InfoScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: {
+    safeContainer: {
         flex: 1,
-        backgroundColor: "#f0f2f5",
+        backgroundColor: "#ffffff",
     },
     header: {
         paddingVertical: 20,

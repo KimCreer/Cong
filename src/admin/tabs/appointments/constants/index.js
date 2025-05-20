@@ -1,7 +1,6 @@
 export const APPOINTMENT_TYPES = {
     COURTESY: { label: "Courtesy (VIP)", icon: "handshake", color: "#6c5ce7" },
     FINANCE: { label: "Finance/Medical", icon: "file-invoice-dollar", color: "#e84393" },
-    OTHER: { label: "Other", icon: "question-circle", color: "#636e72" }
 };
 
 export const STATUS_COLORS = {

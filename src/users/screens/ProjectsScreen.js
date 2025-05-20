@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Dimensions,
+  Image
 } from "react-native";
 import { Card, Button, Chip, ProgressBar, Searchbar } from "react-native-paper";
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
@@ -17,6 +18,34 @@ import { useNavigation } from "@react-navigation/native";
 import { getFirestore, collection, query, orderBy, onSnapshot } from '@react-native-firebase/firestore';
 
 const { width } = Dimensions.get('window');
+
+// Project type icons mapping
+const projectTypeIcons = {
+  infrastructure: "home-city",
+  educational: "school",
+  health: "hospital-box",
+  livelihood: "handshake",
+  social: "account-group",
+  environmental: "leaf",
+  sports: "soccer",
+  disaster: "alert-octagon",
+  youth: "account-supervisor",
+  senior: "account-star"
+};
+
+// Project type display names
+const projectTypeNames = {
+  infrastructure: "Infrastructure",
+  educational: "Educational",
+  health: "Health & Medical",
+  livelihood: "Livelihood",
+  social: "Social Services",
+  environmental: "Environmental",
+  sports: "Sports & Recreation",
+  disaster: "Disaster Response",
+  youth: "Youth Development",
+  senior: "Senior Citizen"
+};
 
 export default function ProjectsScreen() {
   const navigation = useNavigation();
@@ -29,6 +58,7 @@ export default function ProjectsScreen() {
   const [filteredProjects, setFilteredProjects] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
+  const [activeTypeFilter, setActiveTypeFilter] = useState('all');
 
   // Animated scaling effect
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -68,7 +98,20 @@ export default function ProjectsScreen() {
       progress: parseFloat(data.accomplishment) / 100 || 0,
       imageUrl: data.imageUrl || null,
       status: data.status || "active",
+      projectType: data.projectType || "infrastructure",
       createdAt: data.createdAt?.toDate() || new Date(),
+      // Additional fields for different project types
+      beneficiaries: data.beneficiaries || null,
+      startDate: data.startDate || null,
+      endDate: data.endDate || null,
+      budget: data.budget ? `₱${data.budget.toLocaleString()}` : null,
+      partnerAgency: data.partnerAgency || null,
+      targetParticipants: data.targetParticipants || null,
+      programType: data.programType || null,
+      equipment: data.equipment || null,
+      materials: data.materials || null,
+      trainingHours: data.trainingHours || null,
+      venue: data.venue || null
     };
   };
 
@@ -110,18 +153,24 @@ export default function ProjectsScreen() {
       results = results.filter(project => project.status === activeFilter);
     }
     
+    // Apply type filter
+    if (activeTypeFilter !== 'all') {
+      results = results.filter(project => project.projectType === activeTypeFilter);
+    }
+    
     // Apply search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       results = results.filter(project => 
         project.title.toLowerCase().includes(query) ||
-        project.location.toLowerCase().includes(query) ||
-        project.contractor.toLowerCase().includes(query)
+        (project.location && project.location.toLowerCase().includes(query)) ||
+        (project.contractor && project.contractor.toLowerCase().includes(query)) ||
+        (project.partnerAgency && project.partnerAgency.toLowerCase().includes(query))
       );
     }
     
     setFilteredProjects(results);
-  }, [searchQuery, activeFilter, projectList]);
+  }, [searchQuery, activeFilter, activeTypeFilter, projectList]);
 
   useEffect(() => {
     const unsubscribe = fetchProjects();
@@ -148,9 +197,21 @@ export default function ProjectsScreen() {
       <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
         <Card style={styles.projectCard}>
           {/* Project Image with gradient overlay */}
-          {project.imageUrl && (
+          {project.imageUrl ? (
             <View>
               <Card.Cover source={{ uri: project.imageUrl }} style={styles.projectImage} />
+              <LinearGradient 
+                colors={['transparent', 'rgba(0,0,0,0.7)']}
+                style={styles.imageOverlay}
+              />
+            </View>
+          ) : (
+            <View style={[styles.projectImage, styles.noImageContainer]}>
+              <Icon 
+                name={projectTypeIcons[project.projectType] || "file-document"} 
+                size={60} 
+                color="#003366" 
+              />
               <LinearGradient 
                 colors={['transparent', 'rgba(0,0,0,0.7)']}
                 style={styles.imageOverlay}
@@ -162,10 +223,14 @@ export default function ProjectsScreen() {
           <Card.Content style={styles.cardContent}>
             {/* Status & Location Labels */}
             <View style={styles.row}>
-              <View style={styles.locationContainer}>
-                <Icon name="map-marker" size={16} color="#555" style={styles.locationIcon} />
-                <Text style={styles.locationText} numberOfLines={1} ellipsizeMode="tail">
-                  {project.location}
+              <View style={styles.typeBadge}>
+                <Icon 
+                  name={projectTypeIcons[project.projectType] || "file-document"} 
+                  size={16} 
+                  color="#fff" 
+                />
+                <Text style={styles.typeText}>
+                  {projectTypeNames[project.projectType] || "Project"}
                 </Text>
               </View>
               <Chip
@@ -173,6 +238,8 @@ export default function ProjectsScreen() {
                   styles.statusChip,
                   project.status === "completed"
                     ? styles.completedStatus
+                    : project.status === "inactive"
+                    ? styles.inactiveStatus
                     : styles.ongoingStatus,
                 ]}
                 textStyle={styles.statusText}
@@ -186,25 +253,84 @@ export default function ProjectsScreen() {
             <Text style={styles.projectDescription} numberOfLines={2} ellipsizeMode="tail">
               {project.description}
             </Text>
-  
-            {/* Progress Bar with percentage */}
-            <View style={styles.progressContainer}>
-              <View style={styles.progressHeader}>
-                <Text style={styles.progressLabel}>Project Progress</Text>
-                <Text style={styles.progressPercentage}>{project.accomplishment}</Text>
-              </View>
-              <ProgressBar
-                progress={project.progress}
-                color={
-                  project.progress >= 0.8
-                    ? "#4CAF50"
-                    : project.progress >= 0.4
-                    ? "#FFC107"
-                    : "#F44336"
-                }
-                style={styles.progressBar}
-              />
+
+            {/* Project-specific details */}
+            <View style={styles.detailsGrid}>
+              {project.location && (
+                <View style={styles.detailItem}>
+                  <Icon name="map-marker" size={16} color="#555" />
+                  <Text style={styles.detailText} numberOfLines={1}>
+                    {project.location}
+                  </Text>
+                </View>
+              )}
+              
+              {project.projectType === "infrastructure" && project.contractor && (
+                <View style={styles.detailItem}>
+                  <Icon name="account-hard-hat" size={16} color="#555" />
+                  <Text style={styles.detailText} numberOfLines={1}>
+                    {project.contractor}
+                  </Text>
+                </View>
+              )}
+              
+              {project.partnerAgency && (
+                <View style={styles.detailItem}>
+                  <Icon name="office-building" size={16} color="#555" />
+                  <Text style={styles.detailText} numberOfLines={1}>
+                    {project.partnerAgency}
+                  </Text>
+                </View>
+              )}
+              
+              {(project.beneficiaries || project.targetParticipants) && (
+                <View style={styles.detailItem}>
+                  <Icon name="account-multiple" size={16} color="#555" />
+                  <Text style={styles.detailText}>
+                    {project.beneficiaries || project.targetParticipants} beneficiaries
+                  </Text>
+                </View>
+              )}
+              
+              {project.budget && (
+                <View style={styles.detailItem}>
+                  <Icon name="cash" size={16} color="#555" />
+                  <Text style={styles.detailText}>
+                    {project.budget}
+                  </Text>
+                </View>
+              )}
+              
+              {project.startDate && (
+                <View style={styles.detailItem}>
+                  <Icon name="calendar-start" size={16} color="#555" />
+                  <Text style={styles.detailText}>
+                    {project.startDate}
+                  </Text>
+                </View>
+              )}
             </View>
+  
+            {/* Progress Bar with percentage (for infrastructure projects) */}
+            {project.projectType === "infrastructure" && (
+              <View style={styles.progressContainer}>
+                <View style={styles.progressHeader}>
+                  <Text style={styles.progressLabel}>Project Progress</Text>
+                  <Text style={styles.progressPercentage}>{project.accomplishment}</Text>
+                </View>
+                <ProgressBar
+                  progress={project.progress}
+                  color={
+                    project.progress >= 0.8
+                      ? "#4CAF50"
+                      : project.progress >= 0.4
+                      ? "#FFC107"
+                      : "#F44336"
+                  }
+                  style={styles.progressBar}
+                />
+              </View>
+            )}
   
             {/* Learn More Button */}
             <Button
@@ -275,6 +401,7 @@ export default function ProjectsScreen() {
           clearIcon="close-circle-outline"
         />
         
+        {/* Status Filter */}
         <ScrollView 
           horizontal 
           showsHorizontalScrollIndicator={false}
@@ -285,7 +412,7 @@ export default function ProjectsScreen() {
             onPress={() => setActiveFilter('all')}
           >
             <Text style={[styles.filterText, activeFilter === 'all' && styles.activeFilterText]}>
-              All Projects
+              All Status
             </Text>
           </TouchableOpacity>
           
@@ -306,6 +433,43 @@ export default function ProjectsScreen() {
               Completed
             </Text>
           </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.filterButton, activeFilter === 'inactive' && styles.activeFilter]}
+            onPress={() => setActiveFilter('inactive')}
+          >
+            <Text style={[styles.filterText, activeFilter === 'inactive' && styles.activeFilterText]}>
+              Inactive
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* Project Type Filter */}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScroll}
+        >
+          <TouchableOpacity
+            style={[styles.filterButton, activeTypeFilter === 'all' && styles.activeFilter]}
+            onPress={() => setActiveTypeFilter('all')}
+          >
+            <Text style={[styles.filterText, activeTypeFilter === 'all' && styles.activeFilterText]}>
+              All Types
+            </Text>
+          </TouchableOpacity>
+          
+          {Object.keys(projectTypeNames).map(type => (
+            <TouchableOpacity
+              key={type}
+              style={[styles.filterButton, activeTypeFilter === type && styles.activeFilter]}
+              onPress={() => setActiveTypeFilter(type)}
+            >
+              <Text style={[styles.filterText, activeTypeFilter === type && styles.activeFilterText]}>
+                {projectTypeNames[type]}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </ScrollView>
       </View>
 
@@ -426,6 +590,11 @@ const styles = StyleSheet.create({
     height: 180,
     width: '100%',
   },
+  noImageContainer: {
+    backgroundColor: '#e0e9f5',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
   imageOverlay: {
     position: 'absolute',
     left: 0,
@@ -443,17 +612,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
-  locationContainer: {
+  typeBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    maxWidth: width * 0.5,
+    backgroundColor: '#003366',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  locationIcon: {
-    marginRight: 5,
-  },
-  locationText: {
-    fontSize: 13,
-    color: "#555",
+  typeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 5,
   },
   statusChip: {
     paddingHorizontal: 12,
@@ -471,6 +642,9 @@ const styles = StyleSheet.create({
   },
   ongoingStatus: {
     backgroundColor: "#fff8e1", 
+  },
+  inactiveStatus: {
+    backgroundColor: "#ffebee",
   },
   projectTitle: {
     fontSize: 20,
@@ -510,18 +684,21 @@ const styles = StyleSheet.create({
   },
   detailsGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     marginBottom: 15,
   },
   detailItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    maxWidth: '48%',
+    width: '48%',
+    marginBottom: 10,
   },
   detailText: {
     fontSize: 13,
     color: "#555",
     marginLeft: 8,
+    flexShrink: 1,
   },
   learnMoreButton: {
     marginTop: 5, 
@@ -570,17 +747,6 @@ const styles = StyleSheet.create({
   retryButtonText: {
     color: "#fff",
     fontWeight: '600',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f8f9fa",
-  },
-  emptyText: {
-    marginTop: 15,
-    fontSize: 16,
-    color: "#666",
   },
   emptyResultsContainer: {
     flex: 1,
