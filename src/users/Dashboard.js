@@ -14,7 +14,8 @@ import {
   Linking,
   Alert,
   Modal,
-  Pressable
+  Pressable,
+  Platform
 } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createStackNavigator } from "@react-navigation/stack";
@@ -36,6 +37,7 @@ import {
   Timestamp 
 } from "@react-native-firebase/firestore";
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
+import * as ImagePicker from "expo-image-picker";
 
 // Import components
 import ServiceCard from './dashcomps/ServiceCard';
@@ -159,6 +161,7 @@ function HomeScreen() {
   const [upcomingAppointments, setUpcomingAppointments] = useState([]);
   const [newsItems, setNewsItems] = useState([]);
   const [error, setError] = useState(null);
+  const [permissionsChecked, setPermissionsChecked] = useState(false);
 
   const t = translations[language];
   const SERVICE_ITEMS = getServiceItems(language);
@@ -467,6 +470,44 @@ function HomeScreen() {
       </View>
     </Modal>
   );
+
+  // Add permission request function
+  const requestMediaPermissions = useCallback(async () => {
+    if (permissionsChecked) return;
+
+    try {
+      if (Platform.OS !== 'web') {
+        const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
+        const { status: mediaStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        
+        if (cameraStatus !== 'granted' || mediaStatus !== 'granted') {
+          Alert.alert(
+            "Permission Required",
+            "This app needs access to your camera and photo library to let you upload images for appointments and concerns. Please enable these permissions in your device settings.",
+            [
+              { 
+                text: "Open Settings", 
+                onPress: () => Linking.openSettings() 
+              },
+              { 
+                text: "Cancel", 
+                style: "cancel" 
+              }
+            ]
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Error requesting permissions:", error);
+    } finally {
+      setPermissionsChecked(true);
+    }
+  }, [permissionsChecked]);
+
+  // Add useEffect for permission request
+  useEffect(() => {
+    requestMediaPermissions();
+  }, [requestMediaPermissions]);
 
   return (
     <SafeAreaView style={styles.safeContainer}>

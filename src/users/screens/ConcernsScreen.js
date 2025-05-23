@@ -108,21 +108,6 @@ export default function ConcernsScreen() {
     setFilteredConcerns(results);
   }, [concerns, searchQuery, activeFilter]);
 
-  // Request permission for camera and media library
-  useEffect(() => {
-    (async () => {
-      if (Platform.OS !== 'web') {
-        const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
-        const { status: mediaStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        
-        if (cameraStatus !== 'granted' || mediaStatus !== 'granted') {
-          setSnackbarMessage('Camera/media permissions are needed for full functionality');
-          setSnackbarVisible(true);
-        }
-      }
-    })();
-  }, []);
-
   useEffect(() => {
     fetchConcerns();
   }, []);
@@ -136,13 +121,6 @@ export default function ConcernsScreen() {
 
   const selectImage = async () => {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        setSnackbarMessage("You need to allow access to your photos");
-        setSnackbarVisible(true);
-        return;
-      }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -162,13 +140,6 @@ export default function ConcernsScreen() {
 
   const takePhoto = async () => {
     try {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        setSnackbarMessage("You need to allow access to your camera");
-        setSnackbarVisible(true);
-        return;
-      }
-
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,

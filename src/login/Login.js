@@ -147,10 +147,10 @@ const PinInput = ({ pin, length, activeIndex, error, loading }) => {
             loading && styles.pinCircleLoading
           ]}
         >
-          {pin.length > index && (
+          {pin.length > index && !loading && (
             <View style={styles.pinDot} />
           )}
-          {loading && activeIndex === index && (
+          {loading && (
             <ActivityIndicator size="small" color="#003580" />
           )}
         </View>

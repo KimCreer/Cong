@@ -10,6 +10,9 @@ import AppointmentForm from "../components/AppointmentForm";
 import { CalendarDay, WeekCalendar, MonthCalendar } from "./appointcomps/CalendarComponents";
 import { HOLIDAYS, MAX_DAILY_APPOINTMENTS, TIME_SLOT_CONFLICT_MINUTES, isSameDay, addDays, getTimeSlot, isHoliday, isWeekend } from "./appointcomps/utils";
 import { styles } from "./appointcomps/StylesAndComponents";
+import * as ImagePicker from 'expo-image-picker';
+import * as Animated from 'react-native/Libraries/Animated/Animated';
+import * as Easing from 'react-native/Libraries/Animated/Easing';
 
 // Configure notifications
 Notifications.setNotificationHandler({
