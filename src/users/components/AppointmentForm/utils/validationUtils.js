@@ -9,7 +9,28 @@ export const isDateUnavailable = (date) => {
   return isPastDate(date) || isWeekend(date) || isHoliday(date);
 };
 
-export const validateAppointmentForm = (formData, blockedDates) => {
+export const hasExistingCourtesyAppointment = (existingAppointments, currentUserId) => {
+  if (!existingAppointments || !currentUserId) return false;
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  return existingAppointments.some(appointment => {
+    if (!appointment.isCourtesy || appointment.userId !== currentUserId || !appointment.createdAt) {
+      return false;
+    }
+    
+    // Handle both Timestamp and Date objects
+    const appointmentDate = appointment.createdAt instanceof Date 
+      ? appointment.createdAt 
+      : new Date(appointment.createdAt.seconds * 1000);
+    
+    appointmentDate.setHours(0, 0, 0, 0);
+    return isSameDay(appointmentDate, today);
+  });
+};
+
+export const validateAppointmentForm = (formData, blockedDates, existingAppointments, currentUserId) => {
   const errors = [];
 
   if (!formData.type) {
@@ -18,6 +39,11 @@ export const validateAppointmentForm = (formData, blockedDates) => {
   
   if (!formData.purpose.trim()) {
     errors.push("Please enter purpose");
+  }
+  
+  // Check for existing courtesy appointment
+  if (formData.type === "Courtesy (VIP)" && hasExistingCourtesyAppointment(existingAppointments, currentUserId)) {
+    errors.push("You already have a courtesy appointment request for today. Please try again tomorrow.");
   }
   
   // Skip date/time validation for courtesy appointments

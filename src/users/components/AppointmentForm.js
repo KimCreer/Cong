@@ -192,7 +192,28 @@ const AppointmentForm = ({ visible, onClose, onSubmit, initialData, existingAppo
 
   // Form Submission
   const handleSubmit = async () => {
-    const errors = validateAppointmentForm(formData, uiState.blockedDates);
+    // First check for courtesy appointment duplication
+    if (formData.type === "Courtesy (VIP)") {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const hasExistingCourtesy = existingAppointments.some(appt => {
+        if (!appt.isCourtesy || appt.status === "Cancelled") return false;
+        
+        const apptDate = appt.createdAt instanceof Date ? appt.createdAt : new Date(appt.createdAt);
+        const apptDay = new Date(apptDate);
+        apptDay.setHours(0, 0, 0, 0);
+        
+        return apptDay.getTime() === today.getTime();
+      });
+
+      if (hasExistingCourtesy) {
+        Alert.alert("Error", "You already have a courtesy appointment request for today");
+        return;
+      }
+    }
+
+    const errors = validateAppointmentForm(formData, uiState.blockedDates, existingAppointments, currentUserId);
     if (errors.length > 0) {
       Alert.alert("Error", errors[0]);
       return;

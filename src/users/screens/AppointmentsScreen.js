@@ -486,6 +486,27 @@ export default function AppointmentsScreen({ navigation }) {
       setState(prev => ({ ...prev, loading: true }));
       if (!currentUser) return;
   
+      // Additional validation for courtesy appointments
+      if (appointmentData.isCourtesy) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const hasExistingCourtesy = [...state.appointments, ...state.courtesyAppointments].some(appt => {
+          if (!appt.isCourtesy || appt.status === "Cancelled") return false;
+          
+          const apptDate = appt.createdAt instanceof Date ? appt.createdAt : new Date(appt.createdAt);
+          const apptDay = new Date(apptDate);
+          apptDay.setHours(0, 0, 0, 0);
+          
+          return apptDay.getTime() === today.getTime();
+        });
+
+        if (hasExistingCourtesy) {
+          Alert.alert("Error", "You already have a courtesy appointment request for today");
+          return;
+        }
+      }
+  
       let appointmentDate;
       
       if (!appointmentData.isCourtesy) {
