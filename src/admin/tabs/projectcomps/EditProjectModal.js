@@ -15,7 +15,7 @@ import {
 import { MaterialIcons, AntDesign } from "@expo/vector-icons";
 import * as ImagePicker from 'expo-image-picker';
 import { getFirestore, doc, updateDoc } from "@react-native-firebase/firestore";
-import { CLOUDINARY_URL, CLOUDINARY_UPLOAD_PRESET } from '../config/cloudConfig';
+import { uploadToCloudinary, CLOUDINARY_FOLDERS } from '../../../config/cloudinary';
 import { validateProjectForm, getStatusColor } from './projectsUtils';
 
 const EditProjectModal = ({ visible, onClose, project, slideAnim }) => {
@@ -103,29 +103,17 @@ const EditProjectModal = ({ visible, onClose, project, slideAnim }) => {
         if (!formData.image) return formData.imageUrl;
         
         setUploading(true);
-        
         try {
-            const form = new FormData();
-            form.append('file', {
-                uri: formData.image,
-                type: 'image/jpeg',
-                name: 'project_image.jpg'
-            });
-            form.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-            
-            const response = await fetch(CLOUDINARY_URL, {
-                method: 'POST',
-                body: form,
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
-            
-            const result = await response.json();
-            return result.secure_url;
+            const secureUrl = await uploadToCloudinary(formData.image, CLOUDINARY_FOLDERS.PROJECTS);
+            setFormData(prev => ({
+                ...prev,
+                imageUrl: secureUrl
+            }));
+            setHasChanges(true);
+            return secureUrl;
         } catch (error) {
-            console.error("Error uploading image:", error);
-            Alert.alert("Error", "Failed to upload image");
+            console.error("Error uploading project image:", error);
+            Alert.alert("Error", "Failed to upload project image. Please try again.");
             return formData.imageUrl;
         } finally {
             setUploading(false);

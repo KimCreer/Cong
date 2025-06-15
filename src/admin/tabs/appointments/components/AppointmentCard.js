@@ -14,23 +14,30 @@ const AppointmentCard = ({
     onViewDetails,
     allowHistoryActions,
     onCancel,
-    onStatusUpdate
+    onStatusUpdate,
+    onComplete,
+    onDelete,
+    isInHistoryList
 }) => {
     const isActuallyScheduled = appointment.isCourtesy 
         ? appointment.isScheduled && appointment.status === 'Confirmed'
         : appointment.isScheduled;
 
     const showRescheduleButton = appointment.isCourtesy && 
-        (appointment.status === 'Confirmed' || appointment.status === 'Cancelled' || appointment.status === 'Rejected');
+        (appointment.status === 'Confirmed' || appointment.status === 'Cancelled' || appointment.status === 'Rejected') &&
+        !isInHistoryList;
 
-    const showConfirmButton = !isHistory && 
-        !appointment.isCourtesy && 
-        appointment.status !== 'Confirmed';
+    const showConfirmButton = !appointment.isCourtesy && 
+        appointment.status !== 'Confirmed' && 
+        !isInHistoryList;
 
-    const showRejectButton = !isHistory && 
-        !appointment.isCourtesy && 
+    const showRejectButton = !appointment.isCourtesy && 
         appointment.status !== 'Cancelled' && 
-        appointment.status !== 'Rejected';
+        appointment.status !== 'Rejected' &&
+        !isInHistoryList;
+
+    const showDoneButton = appointment.status === 'Confirmed' && 
+        !isInHistoryList;
 
     return (
         <View style={[
@@ -116,34 +123,9 @@ const AppointmentCard = ({
                     <View style={styles.detailRow}>
                         <FontAwesome5 name="user" size={14} color="#666" />
                         <Text style={styles.detailText}>
-                            {`${appointment.userFirstName} ${appointment.userLastName}`}
+                            {appointment.userFirstName} {appointment.userLastName}
                         </Text>
                     </View>
-                    
-                    <View style={styles.detailRow}>
-                        <FontAwesome5 name="calendar-check" size={14} color="#666" />
-                        <Text style={styles.detailText}>
-                            Submitted: {appointment.formattedCreatedAt}
-                        </Text>
-                    </View>
-                    
-                    {isHistory && (
-                        <View style={styles.detailRow}>
-                            <FontAwesome5 name="history" size={14} color="#666" />
-                            <Text style={styles.detailText}>
-                                Updated: {appointment.formattedUpdatedAt}
-                            </Text>
-                        </View>
-                    )}
-                    
-                    {appointment.notes && (
-                        <View style={styles.detailRow}>
-                            <FontAwesome5 name="sticky-note" size={14} color="#666" />
-                            <Text style={styles.detailText} numberOfLines={1}>
-                                {appointment.notes}
-                            </Text>
-                        </View>
-                    )}
                 </View>
                 
                 <View style={styles.cardFooter}>
@@ -153,7 +135,7 @@ const AppointmentCard = ({
                     ]}>
                         {appointment.typeInfo.label}
                     </Text>
-                    {!isHistory && (
+                    {!isInHistoryList && (
                         <MaterialIcons 
                             name={showActionButtons[appointment.id] ? "expand-less" : "expand-more"} 
                             size={20} 
@@ -163,56 +145,69 @@ const AppointmentCard = ({
                 </View>
             </TouchableOpacity>
 
-            {((!isHistory && showActionButtons[appointment.id]) || (isHistory && allowHistoryActions && showActionButtons[appointment.id])) && (
+            {showActionButtons[appointment.id] && (
                 <View style={styles.actionButtonsContainer}>
-                    {((!isHistory && appointment.isCourtesy) || (isHistory && allowHistoryActions && appointment.isCourtesy)) && (
-                        <TouchableOpacity 
-                            style={[styles.actionButton, styles.scheduleButton]}
-                            onPress={() => onSchedule(appointment.id)}
+                    {!isInHistoryList && (
+                        <>
+                            {showDoneButton && (
+                                <TouchableOpacity
+                                    style={[styles.actionButton, styles.completeButton]}
+                                    onPress={() => onComplete(appointment.id)}
+                                >
+                                    <FontAwesome5 name="check-double" size={14} color="#fff" />
+                                    <Text style={styles.actionButtonText}>Done</Text>
+                                </TouchableOpacity>
+                            )}
+                            {showRescheduleButton && (
+                                <TouchableOpacity
+                                    style={[styles.actionButton, styles.scheduleButton]}
+                                    onPress={() => onSchedule(appointment.id)}
+                                >
+                                    <FontAwesome5 name="calendar-plus" size={14} color="#fff" />
+                                    <Text style={styles.actionButtonText}>
+                                        {showRescheduleButton ? 'Reschedule' : 'Schedule'}
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                            {showConfirmButton && (
+                                <TouchableOpacity
+                                    style={[styles.actionButton, styles.confirmButton]}
+                                    onPress={() => onConfirm(appointment.id)}
+                                >
+                                    <FontAwesome5 name="check" size={14} color="#fff" />
+                                    <Text style={styles.actionButtonText}>Confirm</Text>
+                                </TouchableOpacity>
+                            )}
+                            {showRejectButton && (
+                                <TouchableOpacity
+                                    style={[styles.actionButton, styles.rejectButton]}
+                                    onPress={() => onReject(appointment.id)}
+                                >
+                                    <FontAwesome5 name="times" size={14} color="#fff" />
+                                    <Text style={styles.actionButtonText}>Reject</Text>
+                                </TouchableOpacity>
+                            )}
+                            {onCancel && (
+                                <TouchableOpacity
+                                    style={[styles.actionButton, styles.rejectButton]}
+                                    onPress={() => onCancel(appointment.id)}
+                                >
+                                    <FontAwesome5 name="times" size={14} color="#fff" />
+                                    <Text style={styles.actionButtonText}>Cancel</Text>
+                                </TouchableOpacity>
+                            )}
+                        </>
+                    )}
+                    {(isHistory || isInHistoryList) && (
+                        <TouchableOpacity
+                            style={[styles.actionButton, styles.deleteButton]}
+                            onPress={() => onDelete(appointment.id)}
                         >
-                            <FontAwesome5 name="calendar-plus" size={14} color="#fff" />
-                            <Text style={styles.actionButtonText}>
-                                {showRescheduleButton ? 'Reschedule' : 'Schedule'}
-                            </Text>
+                            <FontAwesome5 name="trash" size={14} color="#fff" />
+                            <Text style={styles.actionButtonText}>Delete</Text>
                         </TouchableOpacity>
                     )}
-                    {((!isHistory && appointment.isCourtesy) || (isHistory && allowHistoryActions && (appointment.isCourtesy || appointment.typeInfo.label === 'Medical Finance'))) && (
-                        <TouchableOpacity 
-                            style={[styles.actionButton, styles.rejectButton]}
-                            onPress={() => onCancel && onCancel(appointment.id)}
-                        >
-                            <FontAwesome5 name="times" size={14} color="#fff" />
-                            <Text style={styles.actionButtonText}>Cancel</Text>
-                        </TouchableOpacity>
-                    )}
-                    {showConfirmButton && (
-                        <TouchableOpacity 
-                            style={[styles.actionButton, styles.confirmButton]}
-                            onPress={() => onConfirm(appointment.id)}
-                        >
-                            <FontAwesome5 name="check" size={14} color="#fff" />
-                            <Text style={styles.actionButtonText}>Confirm</Text>
-                        </TouchableOpacity>
-                    )}
-                    {showRejectButton && (
-                        <TouchableOpacity 
-                            style={[styles.actionButton, styles.rejectButton]}
-                            onPress={() => onReject(appointment.id)}
-                        >
-                            <FontAwesome5 name="times" size={14} color="#fff" />
-                            <Text style={styles.actionButtonText}>Reject</Text>
-                        </TouchableOpacity>
-                    )}
-                    {isHistory && allowHistoryActions && (
-                        <TouchableOpacity 
-                            style={[styles.actionButton, styles.updateButton]}
-                            onPress={() => onStatusUpdate && onStatusUpdate()}
-                        >
-                            <FontAwesome5 name="sync" size={14} color="#fff" />
-                            <Text style={styles.actionButtonText}>Update Status</Text>
-                        </TouchableOpacity>
-                    )}
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={[styles.actionButton, styles.detailsButton]}
                         onPress={() => onViewDetails(appointment.id)}
                     >
@@ -376,8 +371,11 @@ const styles = StyleSheet.create({
         fontSize: 12,
         marginLeft: 6,
     },
-    updateButton: {
+    completeButton: {
         backgroundColor: '#6c5ce7',
+    },
+    deleteButton: {
+        backgroundColor: '#ff4d4f',
     },
 });
 

@@ -293,7 +293,7 @@ const ScheduleCourtesy = ({ navigation }) => {
                   item.isWeekend && styles.weekendCell
                 ]}
                 onPress={() => item.day && !item.isPast && handleDateSelect(item.date)}
-                disabled={!item.day || item.isPast}
+                disabled={!item.day || item.isPast || item.isWeekend}
               >
                 {item.day && (
                   <Text style={[

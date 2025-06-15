@@ -20,7 +20,7 @@ import { getFirestore, doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from
 import { useNavigation, useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CLOUDINARY_URL, CLOUDINARY_UPLOAD_PRESET } from '../../../data/cloudinaryConfig';
+import { uploadToCloudinary, CLOUDINARY_FOLDERS } from '../../config/cloudinary';
 
 const PostDetails = () => {
     const navigation = useNavigation();
@@ -106,27 +106,11 @@ const PostDetails = () => {
         
         setUploading(true);
         try {
-            const formData = new FormData();
-            formData.append('file', {
-                uri: image,
-                type: 'image/jpeg',
-                name: 'upload.jpg'
-            });
-            formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-            
-            const response = await fetch(CLOUDINARY_URL, {
-                method: 'POST',
-                body: formData,
-                headers: { 'Content-Type': 'multipart/form-data' },
-            });
-            
-            if (!response.ok) throw new Error('Upload failed');
-            
-            const data = await response.json();
-            return data.secure_url;
+            const secureUrl = await uploadToCloudinary(image, CLOUDINARY_FOLDERS.UPDATES);
+            return secureUrl;
         } catch (error) {
             console.error("Image upload error:", error);
-            Alert.alert("Error", "Failed to upload image");
+            Alert.alert("Error", "Failed to upload image. Please try again.");
             return null;
         } finally {
             setUploading(false);

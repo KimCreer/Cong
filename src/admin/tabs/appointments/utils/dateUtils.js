@@ -43,6 +43,10 @@ export const isDateBlocked = (date, blockedDates) => {
     return blockedDates.some(blocked => isSameDay(blocked.date, date));
 };
 
-export const isDateSelectable = (date, blockedDates) => {
-    return !isDateInPast(date) && !isDateBlocked(date, blockedDates);
+export const isDateSelectable = (date, blockedDates, allowPastSelection = false) => {
+    if (allowPastSelection) {
+        return !isDateBlocked(date, blockedDates);
+    } else {
+        return !isDateInPast(date) && !isDateBlocked(date, blockedDates);
+    }
 }; 

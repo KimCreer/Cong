@@ -77,10 +77,10 @@ const translations = {
     selectLanguage: "Language",
     close: "Close",
     services: {
-      Laws: "Laws",
+      Laws: "Acts",
       Projects: "Projects",
       Concerns: "Concerns",
-      Sched: "Booking",
+      Sched: "Visits",
       Newsfeed: "News",
       Info: "Info"
     }

@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import * as ImagePicker from 'expo-image-picker';
+import { uploadToCloudinary, CLOUDINARY_FOLDERS } from '../../config/cloudinary';
 
 // Components
 import ProfileHeader from './profilecomps/ProfileHeader';
@@ -101,35 +102,14 @@ const ProfileScreen = () => {
     if (!imageUri) return null;
 
     try {
-      const formData = new FormData();
-      const filename = imageUri.substring(imageUri.lastIndexOf("/") + 1);
-    
-      formData.append('file', {
-        uri: imageUri,
-        type: 'image/jpeg',
-        name: filename,
-      });
-    
-      formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-      formData.append('folder', 'profile_pictures');
-
-      const response = await fetch(CLOUDINARY_URL, {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'Accept': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Upload failed with status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data.secure_url;
+      const secureUrl = await uploadToCloudinary(imageUri, CLOUDINARY_FOLDERS.PROFILE_PICTURES);
+      return secureUrl;
     } catch (error) {
       console.error("Error uploading profile image:", error);
-      Alert.alert("Upload Error", "Failed to upload profile image: " + error.message);
+      Alert.alert(
+        "Upload Error", 
+        "Failed to upload profile image. Please try again."
+      );
       return null;
     }
   };

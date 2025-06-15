@@ -92,6 +92,7 @@ const AppointmentsTab = () => {
     const [refreshing, setRefreshing] = useState(false);
     const [userCache, setUserCache] = useState({});
     const [selectedType, setSelectedType] = useState(null);
+    const [selectedDate, setSelectedDate] = useState(null);
     const [showTypeFilter, setShowTypeFilter] = useState(false);
     const [showActionButtons, setShowActionButtons] = useState({});
     const [activeTab, setActiveTab] = useState('appointments');
@@ -107,6 +108,7 @@ const AppointmentsTab = () => {
     const [fadeAnim] = useState(new Animated.Value(1));
     const [slideAnim] = useState(new Animated.Value(0));
     const [showHistory, setShowHistory] = useState(false);
+    const [appointmentCountsByDate, setAppointmentCountsByDate] = useState({});
 
     const db = getFirestore();
 
@@ -222,7 +224,13 @@ const AppointmentsTab = () => {
                     typeInfo: typeInfo,
                     isCourtesy: appointmentData.isCourtesy || false,
                     isScheduled: appointmentData.isCourtesy ? isDifferentFromCreated : hasValidDate,
-                    isPast: isPastAppointment
+                    isPast: isPastAppointment,
+                    // Re-define isInHistoryList: True only for 'Completed' or 'Confirmed' past appointments.
+                    // 'Cancelled' and 'Rejected' are now considered actionable unless they are in the 'history' column.
+                    isInHistoryList: (
+                        appointmentData.status === 'Completed' ||
+                        (appointmentData.status === 'Confirmed' && isPastAppointment)
+                    )
                 };
             };
             
@@ -232,6 +240,18 @@ const AppointmentsTab = () => {
             }
             
             setAppointments(allAppointments);
+
+            // Calculate appointment counts by date
+            const counts = allAppointments.reduce((acc, app) => {
+                const date = app.createdAt?.toDate();
+                if (date) {
+                    const dateKey = format(date, 'yyyy-MM-dd');
+                    acc[dateKey] = (acc[dateKey] || 0) + 1;
+                }
+                return acc;
+            }, {});
+            setAppointmentCountsByDate(counts);
+
         } catch (error) {
             console.error("Error fetching appointments:", error);
             Alert.alert("Error", "Failed to load appointments");
@@ -389,6 +409,77 @@ const AppointmentsTab = () => {
             Alert.alert("Error", "Failed to update appointment status");
         }
     };
+
+    const handleComplete = async (appointmentId) => {
+        try {
+            // Get the current appointment data
+            const appointmentRef = doc(db, 'appointments', appointmentId);
+            const appointmentDoc = await getDoc(appointmentRef);
+            const appointmentData = appointmentDoc.data();
+
+            // Update the appointment with completed status and current timestamp
+            await updateDoc(appointmentRef, {
+                status: 'Completed',
+                updatedAt: serverTimestamp(),
+                completedAt: serverTimestamp() // Add a timestamp for when it was completed
+            });
+            
+            // Immediately update the local state to move the appointment to history
+            setAppointments(prevAppointments => {
+                const updatedAppointments = prevAppointments.map(app => {
+                    if (app.id === appointmentId) {
+                        return {
+                            ...app,
+                            status: 'Completed',
+                            updatedAt: new Date(),
+                            completedAt: new Date()
+                        };
+                    }
+                    return app;
+                });
+                return updatedAppointments;
+            });
+            
+            // Show success message
+            Alert.alert(
+                'Success',
+                'Appointment marked as completed and moved to history',
+                [{ text: 'OK' }]
+            );
+        } catch (error) {
+            console.error('Error completing appointment:', error);
+            Alert.alert(
+                'Error',
+                'Failed to mark appointment as completed',
+                [{ text: 'OK' }]
+            );
+        }
+    };
+
+    const handleDeleteAppointment = async (appointmentId) => {
+        Alert.alert(
+            "Delete Appointment",
+            "Are you sure you want to permanently delete this appointment? This action cannot be undone.",
+            [
+                { text: "Cancel", style: "cancel" },
+                { 
+                    text: "Delete", 
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            const db = getFirestore();
+                            await deleteDoc(doc(db, 'appointments', appointmentId));
+                            setAppointments(prevAppointments => prevAppointments.filter(app => app.id !== appointmentId));
+                            Alert.alert("Success", "Appointment permanently deleted.");
+                        } catch (error) {
+                            console.error("Error deleting appointment:", error);
+                            Alert.alert("Error", "Failed to delete appointment.");
+                        }
+                    }
+                }
+            ]
+        );
+    };
         
     const animateFilter = (isActive) => {
         Animated.parallel([
@@ -417,7 +508,19 @@ const AppointmentsTab = () => {
         const newSelectedType = type === selectedType ? null : type;
         setSelectedType(newSelectedType);
         setShowTypeFilter(false);
-        animateFilter(newSelectedType !== null);
+        animateFilter(newSelectedType !== null || selectedDate !== null);
+    };
+
+    const handleDateSelect = (date) => {
+        const newSelectedDate = date && isSameDay(date, selectedDate) ? null : date;
+        setSelectedDate(newSelectedDate);
+        animateFilter(selectedType !== null || newSelectedDate !== null);
+    };
+
+    const clearFilters = () => {
+        setSelectedType(null);
+        setSelectedDate(null);
+        animateFilter(false);
     };
 
     const handleNameFilter = (text) => {
@@ -438,19 +541,59 @@ const AppointmentsTab = () => {
                 ? `${app.userFirstName} ${app.userLastName}`.toLowerCase().includes(nameFilter.toLowerCase())
                 : true;
             
+            // Updated date filtering logic
+            let dateMatch = true;
+            if (selectedDate) {
+                const appointmentDate = app.createdAt?.toDate();
+                if (appointmentDate) {
+                    // For history column, show all appointments regardless of date
+                    if (columnKey === 'history') {
+                        dateMatch = isSameDay(appointmentDate, selectedDate);
+                    } else {
+                        // For other columns, show appointments based on their status and date
+                        dateMatch = isSameDay(appointmentDate, selectedDate);
+                    }
+                }
+            }
+            
+            // Special handling for completed appointments
+            if (app.status === 'Completed') {
+                // Always show completed appointments in history column
+                if (columnKey === 'history') {
+                    return typeMatch && nameMatch && dateMatch;
+                }
+                // Don't show completed appointments in other columns
+                return false;
+            }
+            
+            // Special handling for courtesy appointments
+            if (app.isCourtesy) {
+                // For history column, only show past courtesy appointments
+                if (columnKey === 'history') {
+                    const appointmentDate = app.date?.toDate();
+                    return statusMatch && typeMatch && nameMatch && dateMatch && 
+                           appointmentDate && appointmentDate < currentDate;
+                }
+                // For other columns, show courtesy appointments based on status only
+                return statusMatch && typeMatch && nameMatch && dateMatch;
+            }
+            
+            // For regular appointments
             // For history column, only show past appointments
             if (columnKey === 'history') {
                 const appointmentDate = app.date?.toDate();
-                return statusMatch && typeMatch && nameMatch && appointmentDate && appointmentDate < currentDate;
+                return statusMatch && typeMatch && nameMatch && dateMatch && 
+                       appointmentDate && appointmentDate < currentDate;
             }
             
             // For other columns, only show current/future appointments
             if (columnKey !== 'history') {
                 const appointmentDate = app.date?.toDate();
-                return statusMatch && typeMatch && nameMatch && (!appointmentDate || appointmentDate >= currentDate);
+                return statusMatch && typeMatch && nameMatch && dateMatch && 
+                       appointmentDate && appointmentDate >= currentDate;
             }
             
-            return statusMatch && typeMatch && nameMatch;
+            return statusMatch && typeMatch && nameMatch && dateMatch;
         });
 
         const totalAppointments = appointments.filter(app => 
@@ -535,6 +678,10 @@ const AppointmentsTab = () => {
                                     }}
                                     allowHistoryActions={columnKey === 'history'}
                                     onCancel={handleCancelAppointment}
+                                    onComplete={handleComplete}
+                                    isHistory={columnKey === 'history'}
+                                    isInHistoryList={appointment.isInHistoryList}
+                                    onDelete={handleDeleteAppointment}
                                 />
                             </Animated.View>
                         ))
@@ -618,27 +765,33 @@ const AppointmentsTab = () => {
                             <TouchableOpacity 
                                 style={[
                                     styles.filterButton,
-                                    selectedType && styles.activeFilterButton
+                                    (selectedType || selectedDate) && styles.activeFilterButton
                                 ]}
                                 onPress={() => setShowTypeFilter(true)}
                             >
                                 <Feather 
                                     name="filter" 
-                                    size={18} 
-                                    color={selectedType ? "#fff" : "#003366"} 
+                                    size={16} 
+                                    color={(selectedType || selectedDate) ? "#fff" : "#003366"} 
                                 />
                                 <Text style={[
                                     styles.filterButtonText,
-                                    selectedType && styles.activeFilterButtonText
+                                    (selectedType || selectedDate) && styles.activeFilterButtonText
                                 ]}>
-                                    {selectedType || "All Types"}
+                                    {selectedType 
+                                        ? selectedDate 
+                                            ? `${selectedType} • ${safeFormatDate(selectedDate, 'MMM dd')}`
+                                            : selectedType
+                                        : selectedDate 
+                                            ? safeFormatDate(selectedDate, 'MMM dd')
+                                            : "Filter"}
                                 </Text>
-                                {selectedType && (
+                                {(selectedType || selectedDate) && (
                                     <TouchableOpacity 
                                         style={styles.clearFilterButton}
-                                        onPress={() => setSelectedType(null)}
+                                        onPress={clearFilters}
                                     >
-                                        <Feather name="x" size={16} color="#fff" />
+                                        <Feather name="x" size={14} color={(selectedType || selectedDate) ? "#fff" : "#666"} />
                                     </TouchableOpacity>
                                 )}
                             </TouchableOpacity>
@@ -753,68 +906,96 @@ const AppointmentsTab = () => {
                 onRequestClose={() => setShowTypeFilter(false)}
             >
                 <View style={styles.modalOverlay}>
-                    <Animated.View 
-                        style={[
-                            styles.filterModalContent,
-                            {
-                                transform: [
-                                    { scale: scaleAnim },
-                                    { translateY: slideAnim.interpolate({
-                                        inputRange: [0, 1],
-                                        outputRange: [50, 0]
-                                    })}
-                                ],
-                                opacity: fadeAnim
-                            }
-                        ]}
-                    >
-                        <Text style={styles.filterModalTitle}>Filter by Appointment Type</Text>
-                        <Text style={styles.filterModalSubtitle}>
-                            Select a type to filter appointments
-                        </Text>
-                        
-                        <View style={styles.filterOptionsContainer}>
+                    <View style={styles.filterModalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.filterModalTitle}>Filter Appointments</Text>
                             <TouchableOpacity 
-                                style={[styles.filterOption, !selectedType && styles.selectedFilterOption]}
-                                onPress={() => handleTypeSelect(null)}
+                                style={styles.modalCloseIcon}
+                                onPress={() => setShowTypeFilter(false)}
                             >
-                                <View style={[styles.typeIcon, { backgroundColor: '#6c757d' }]}>
-                                    <Feather name="list" size={16} color="#fff" />
-                                </View>
-                                <Text style={[styles.filterOptionText, !selectedType && styles.selectedFilterOptionText]}>
-                                    All Appointment Types
-                                </Text>
+                                <Feather name="x" size={20} color="#666" />
                             </TouchableOpacity>
+                        </View>
+
+                        <ScrollView 
+                            style={styles.modalScrollContent}
+                            showsVerticalScrollIndicator={false}
+                        >
+                            <View style={styles.dateFilterContainer}>
+                                <Text style={styles.filterSectionTitle}>Date</Text>
+                                <Calendar
+                                    currentMonth={currentMonth}
+                                    onNavigateMonth={navigateMonth}
+                                    selectedDate={selectedDate}
+                                    onSelectDate={handleDateSelect}
+                                    blockedDates={blockedDates}
+                                    allowPastDates={true}
+                                    allowPastSelection={true}
+                                    appointmentCountsByDate={appointmentCountsByDate}
+                                />
+                            </View>
                             
-                            {Object.values(APPOINTMENT_TYPES).map((type) => (
+                            <View style={styles.filterOptionsContainer}>
+                                <Text style={styles.filterSectionTitle}>Type</Text>
                                 <TouchableOpacity 
-                                    key={type.label}
                                     style={[
-                                        styles.filterOption, 
-                                        selectedType === type.label && styles.selectedFilterOption
+                                        styles.filterOption,
+                                        !selectedType && styles.selectedFilterOption
                                     ]}
-                                    onPress={() => handleTypeSelect(type.label)}
+                                    onPress={() => handleTypeSelect(null)}
                                 >
-                                    <View style={[styles.typeIcon, { backgroundColor: type.color }]}>
-                                        <FontAwesome5 name={type.icon} size={16} color="#fff" />
+                                    <View style={[styles.typeIcon, { backgroundColor: '#6c757d' }]}>
+                                        <Feather name="list" size={14} color="#fff" />
                                     </View>
                                     <Text style={[
                                         styles.filterOptionText,
-                                        selectedType === type.label && styles.selectedFilterOptionText
+                                        !selectedType && styles.selectedFilterOptionText
                                     ]}>
-                                        {type.label}
+                                        All Types
                                     </Text>
                                 </TouchableOpacity>
-                            ))}
-                        </View>
+                                
+                                {Object.values(APPOINTMENT_TYPES).map((type) => (
+                                    <TouchableOpacity 
+                                        key={type.label}
+                                        style={[
+                                            styles.filterOption,
+                                            selectedType === type.label && styles.selectedFilterOption
+                                        ]}
+                                        onPress={() => handleTypeSelect(type.label)}
+                                    >
+                                        <View style={[styles.typeIcon, { backgroundColor: type.color }]}>
+                                            <FontAwesome5 name={type.icon} size={14} color="#fff" />
+                                        </View>
+                                        <Text style={[
+                                            styles.filterOptionText,
+                                            selectedType === type.label && styles.selectedFilterOptionText
+                                        ]}>
+                                            {type.label}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </ScrollView>
                         
-                        <TouchableOpacity 
-                            style={styles.modalCloseButton}
-                            onPress={() => setShowTypeFilter(false)}
-                        >
-                            <Text style={styles.modalCloseButtonText}>Close</Text>
-                        </TouchableOpacity>
-                    </Animated.View>
+                        <View style={styles.modalButtonRow}>
+                            <TouchableOpacity 
+                                style={[styles.modalButton, styles.cancelButton]}
+                                onPress={clearFilters}
+                            >
+                                <Text style={styles.modalButtonText}>Clear</Text>
+                            </TouchableOpacity>
+                            
+                            <TouchableOpacity 
+                                style={[styles.modalButton, styles.confirmButton]}
+                                onPress={() => setShowTypeFilter(false)}
+                            >
+                                <Text style={[styles.modalButtonText, styles.confirmButtonText]}>
+                                    Apply
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
                 </View>
             </Modal>
 
@@ -997,7 +1178,9 @@ const AppointmentsTab = () => {
                                 style={[styles.modalButton, styles.confirmButton]}
                                 onPress={() => setShowNameFilter(false)}
                             >
-                                <Text style={styles.modalButtonText}>Apply</Text>
+                                <Text style={[styles.modalButtonText, styles.confirmButtonText]}>
+                                    Apply
+                                </Text>
                             </TouchableOpacity>
                         </View>
                     </Animated.View>

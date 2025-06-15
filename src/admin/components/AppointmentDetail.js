@@ -121,7 +121,8 @@ const AppointmentDetail = () => {
                     formattedTime: validateTime(data.time),
                     formattedCreatedAt: safeFormatDate(data.createdAt, 'MMM dd, yyyy hh:mm a'),
                     typeInfo: typeInfo,
-                    isScheduled: data.isCourtesy ? isDifferentFromCreated : hasValidDate
+                    isScheduled: data.isCourtesy ? isDifferentFromCreated : hasValidDate,
+                    isPast: hasValidDate ? data.date.toDate() < new Date() : false
                 });
                 
                 setUserDetails(userData);
@@ -177,7 +178,8 @@ const AppointmentDetail = () => {
                     formattedTime: validateTime(data.time),
                     formattedCreatedAt: safeFormatDate(data.createdAt, 'MMM dd, yyyy hh:mm a'),
                     typeInfo: typeInfo,
-                    isScheduled: data.isCourtesy ? isDifferentFromCreated : hasValidDate
+                    isScheduled: data.isCourtesy ? isDifferentFromCreated : hasValidDate,
+                    isPast: hasValidDate ? data.date.toDate() < new Date() : false
                 }));
                 
                 setUserDetails(userData);
@@ -304,6 +306,12 @@ const AppointmentDetail = () => {
     const isActuallyScheduled = appointment.isCourtesy 
         ? appointment.isScheduled && appointment.status === 'Confirmed'
         : appointment.isScheduled;
+
+    // Determine if the appointment is in history
+    const isInHistory = (
+        appointment.status === 'Completed' ||
+        (appointment.status === 'Confirmed' && appointment.isPast) // Only confirmed past appointments are history
+    );
 
     return (
         <View style={styles.container}>
@@ -445,8 +453,8 @@ const AppointmentDetail = () => {
             {/* Action Buttons */}
             <View style={styles.actionBar}>
                 {appointment.isCourtesy ? (
-                    <>
-                        {!isActuallyScheduled ? (
+                    <> 
+                        {!isActuallyScheduled && !isInHistory ? ( // Hide if already scheduled OR in history
                             <TouchableOpacity 
                                 style={[styles.actionButton, styles.scheduleButton]}
                                 onPress={handleScheduleCourtesy}
@@ -461,30 +469,34 @@ const AppointmentDetail = () => {
                                     </>
                                 )}
                             </TouchableOpacity>
-                        ) : (
-                            <View style={styles.scheduledBadge}>
-                                <FontAwesome5 name="calendar-check" size={16} color="#28a745" />
-                                <Text style={styles.scheduledText}>Scheduled</Text>
-                            </View>
+                        ) : ( 
+                            isActuallyScheduled && !isInHistory && ( // Show Scheduled badge only if actually scheduled and not in history
+                                <View style={styles.scheduledBadge}>
+                                    <FontAwesome5 name="calendar-check" size={16} color="#28a745" />
+                                    <Text style={styles.scheduledText}>Scheduled</Text>
+                                </View>
+                            )
                         )}
-                        <TouchableOpacity 
-                            style={[styles.actionButton, styles.rejectButton]}
-                            onPress={() => handleStatusUpdate('Rejected')}
-                            disabled={updating}
-                        >
-                            {updating ? (
-                                <ActivityIndicator size="small" color="#FFF" />
-                            ) : (
-                                <>
-                                    <FontAwesome5 name="times" size={16} color="#fff" />
-                                    <Text style={styles.actionButtonText}>Reject</Text>
-                                </>
-                            )}
-                        </TouchableOpacity>
+                        {!isInHistory && ( // Hide Reject button if in history
+                            <TouchableOpacity 
+                                style={[styles.actionButton, styles.rejectButton]}
+                                onPress={() => handleStatusUpdate('Rejected')}
+                                disabled={updating}
+                            >
+                                {updating ? (
+                                    <ActivityIndicator size="small" color="#FFF" />
+                                ) : (
+                                    <>
+                                        <FontAwesome5 name="times" size={16} color="#fff" />
+                                        <Text style={styles.actionButtonText}>Reject</Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
+                        )}
                     </>
                 ) : (
-                    <>
-                        {appointment.status === 'Pending' && (
+                    <> 
+                        {appointment.status === 'Pending' && !isInHistory && ( // Hide if not pending OR in history
                             <>
                                 <TouchableOpacity 
                                     style={[styles.actionButton, styles.rejectButton]}

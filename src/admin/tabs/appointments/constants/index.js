@@ -3,12 +3,45 @@ export const APPOINTMENT_TYPES = {
     FINANCE: { label: "Finance/Medical", icon: "file-invoice-dollar", color: "#e84393" },
 };
 
+export const STATUS_COLUMNS = {
+    pending: {
+        title: 'Pending',
+        statuses: ['Pending'],
+        color: '#FFA000',
+        description: 'New requests waiting for action'
+    },
+    confirmed: {
+        title: 'Confirmed',
+        statuses: ['Confirmed'],
+        color: '#28a745',
+        description: 'Scheduled appointments'
+    },
+    completed: {
+        title: 'Completed',
+        statuses: ['Completed'],
+        color: '#6c5ce7',
+        description: 'Completed appointments'
+    },
+    cancelled: {
+        title: 'Cancelled',
+        statuses: ['Cancelled', 'Rejected'],
+        color: '#dc3545',
+        description: 'Cancelled or rejected appointments'
+    },
+    history: {
+        title: 'History',
+        statuses: ['Completed', 'Cancelled', 'Rejected'],
+        color: '#6c757d',
+        description: 'Past appointments'
+    }
+};
+
 export const STATUS_COLORS = {
-    Pending: "#FFA000",
-    Confirmed: "#28a745",
-    Cancelled: "#dc3545",
-    Completed: "#007bff",
-    Rejected: "#6c757d"
+    Pending: '#FFA000',
+    Confirmed: '#28a745',
+    Completed: '#6c5ce7',
+    Cancelled: '#dc3545',
+    Rejected: '#dc3545'
 };
 
 export const SORT_OPTIONS = [

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { getAuth } from "@react-native-firebase/auth";
 import { getFirestore, doc, getDoc, updateDoc, setDoc } from "@react-native-firebase/firestore";
 import { Alert } from 'react-native';
-import { CLOUDINARY_URL, CLOUDINARY_UPLOAD_PRESET } from '../../../../../data/cloudinaryConfig';
+import { uploadToCloudinary, CLOUDINARY_FOLDERS } from '../../../../config/cloudinary';
 
 export const useProfile = () => {
     const [adminData, setAdminData] = useState({
@@ -97,30 +97,8 @@ export const useProfile = () => {
     const uploadImageToCloudinary = async (imageUri) => {
         try {
             setUploading(true);
-            
-            const formData = new FormData();
-            formData.append('file', {
-                uri: imageUri,
-                type: 'image/jpeg',
-                name: 'profile.jpg'
-            });
-            formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-            
-            const response = await fetch(CLOUDINARY_URL, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
-            
-            const data = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(data.message || 'Failed to upload image');
-            }
-            
-            return data.secure_url;
+            const secureUrl = await uploadToCloudinary(imageUri, CLOUDINARY_FOLDERS.PROFILE_PICTURES);
+            return secureUrl;
         } catch (error) {
             console.error('Upload error:', error);
             throw error;

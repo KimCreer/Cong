@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { FontAwesome5 } from "@expo/vector-icons";
-import { addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay } from 'date-fns';
+import { addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, format } from 'date-fns';
 import { DAYS_OF_WEEK, MONTHS } from '../constants';
 import { isDateInPast, isDateBlocked, isDateSelectable } from '../utils/dateUtils';
 
@@ -10,7 +10,10 @@ const Calendar = ({
     onNavigateMonth, 
     selectedDate, 
     onSelectDate, 
-    blockedDates 
+    blockedDates,
+    allowPastDates = false,
+    allowPastSelection = false,
+    appointmentCountsByDate = {}
 }) => {
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(currentMonth);
@@ -50,15 +53,19 @@ const Calendar = ({
                     const isPast = isDateInPast(day);
                     const isSelected = selectedDate && isSameDay(day, selectedDate);
                     const isCurrentMonth = isSameMonth(day, currentMonth);
-                    const isSelectable = isDateSelectable(day, blockedDates);
+                    const isSelectable = isDateSelectable(day, blockedDates, allowPastSelection);
                     
+                    const dayKey = format(day, 'yyyy-MM-dd');
+                    const appointmentCount = appointmentCountsByDate[dayKey] || 0;
+
                     return (
                         <TouchableOpacity
                             key={day.toString()}
                             style={[
                                 styles.calendarDay,
                                 isBlocked && styles.blockedDay,
-                                isPast && styles.pastDay,
+                                !allowPastDates && isPast && styles.pastDay,
+                                (appointmentCount > 0 && !isSelected) && styles.hasAppointmentsDay,
                                 isSelected && styles.selectedDay,
                                 !isCurrentMonth && styles.nonMonthDay
                             ]}
@@ -68,12 +75,20 @@ const Calendar = ({
                             <Text style={[
                                 styles.dayText,
                                 isBlocked && styles.blockedDayText,
-                                isPast && styles.pastDayText,
+                                !allowPastDates && isPast && styles.pastDayText,
                                 isSelected && styles.selectedDayText,
+                                !isSelected && appointmentCount > 0 && { color: '#333' },
                                 !isCurrentMonth && styles.nonMonthDayText
                             ]}>
                                 {day.getDate()}
                             </Text>
+                            {appointmentCount > 0 && (
+                                <View style={styles.appointmentCountBadge}>
+                                    <Text style={styles.appointmentCountText}>
+                                        {appointmentCount}
+                                    </Text>
+                                </View>
+                            )}
                             {isBlocked && (
                                 <View style={styles.blockedIndicator} />
                             )}
@@ -145,10 +160,13 @@ const styles = StyleSheet.create({
         color: '#999',
     },
     selectedDay: {
-        backgroundColor: '#003366',
+        borderColor: '#003366',
+        borderWidth: 2,
+        backgroundColor: 'transparent',
     },
     selectedDayText: {
-        color: '#fff',
+        color: '#333',
+        fontWeight: 'bold',
     },
     nonMonthDay: {
         opacity: 0.3,
@@ -164,6 +182,26 @@ const styles = StyleSheet.create({
         height: 8,
         borderRadius: 4,
         backgroundColor: '#dc3545',
+    },
+    hasAppointmentsDay: {
+        backgroundColor: '#e6f2ff',
+    },
+    appointmentCountBadge: {
+        position: 'absolute',
+        bottom: 1,
+        left: 1,
+        backgroundColor: '#003366',
+        borderRadius: 7,
+        width: 14,
+        height: 14,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 0,
+    },
+    appointmentCountText: {
+        color: '#fff',
+        fontSize: 8,
+        fontWeight: 'bold',
     },
 });
 

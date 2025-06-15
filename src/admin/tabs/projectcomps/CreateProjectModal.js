@@ -15,7 +15,7 @@ import {
 import { MaterialIcons, AntDesign } from "@expo/vector-icons";
 import * as ImagePicker from 'expo-image-picker';
 import { getFirestore, collection, addDoc } from "@react-native-firebase/firestore";
-import { CLOUDINARY_URL, CLOUDINARY_UPLOAD_PRESET } from '../config/cloudConfig';
+import { uploadToCloudinary, CLOUDINARY_FOLDERS } from '../../../config/cloudinary';
 import { validateProjectForm, getStatusColor } from './projectsUtils';
 
 const CreateProjectModal = ({ visible, onClose, slideAnim }) => {
@@ -71,29 +71,16 @@ const CreateProjectModal = ({ visible, onClose, slideAnim }) => {
         if (!formData.image) return null;
         
         setUploading(true);
-        
         try {
-            const form = new FormData();
-            form.append('file', {
-                uri: formData.image,
-                type: 'image/jpeg',
-                name: 'project_image.jpg'
-            });
-            form.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-            
-            const response = await fetch(CLOUDINARY_URL, {
-                method: 'POST',
-                body: form,
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
-            
-            const data = await response.json();
-            return data.secure_url;
+            const secureUrl = await uploadToCloudinary(formData.image, CLOUDINARY_FOLDERS.PROJECTS);
+            setFormData(prev => ({
+                ...prev,
+                imageUrl: secureUrl
+            }));
+            return secureUrl;
         } catch (error) {
-            console.error("Error uploading image:", error);
-            Alert.alert("Error", "Failed to upload image");
+            console.error("Error uploading project image:", error);
+            Alert.alert("Error", "Failed to upload project image. Please try again.");
             return null;
         } finally {
             setUploading(false);
