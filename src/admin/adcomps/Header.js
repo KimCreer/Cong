@@ -1,8 +1,19 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Image, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useAdminNavigation } from '../hooks/useAdminNavigation';
 
 const Header = ({ activeTab, setActiveTab, adminProfile }) => {
+    const { loading, canAccessTab } = useAdminNavigation();
+
+    if (loading) {
+        return (
+            <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#003366" />
+            </View>
+        );
+    }
+
     return (
         <View style={styles.headerContainer}>
             {/* Facebook-style Header */}
@@ -11,12 +22,14 @@ const Header = ({ activeTab, setActiveTab, adminProfile }) => {
                     <Text style={styles.fbHeaderTitle}>Admin Portal</Text>
                 </View>
                 <View style={styles.fbHeaderRight}>
-                    <TouchableOpacity 
-                        style={styles.fbHeaderIcon}
-                        onPress={() => setActiveTab('stats')}
-                    >
-                        <Ionicons name="stats-chart" size={24} color="#003366" />
-                    </TouchableOpacity>
+                    {canAccessTab('stats') && (
+                        <TouchableOpacity 
+                            style={styles.fbHeaderIcon}
+                            onPress={() => setActiveTab('stats')}
+                        >
+                            <Ionicons name="stats-chart" size={24} color="#003366" />
+                        </TouchableOpacity>
+                    )}
                     <TouchableOpacity 
                         style={styles.fbProfileButton}
                         onPress={() => setActiveTab('profile')}
@@ -38,12 +51,12 @@ const Header = ({ activeTab, setActiveTab, adminProfile }) => {
             </View>
 
             {/* Top Navigation Tabs */}
-            <View style={styles.topTabsContainer}>
-                <ScrollView 
-                    horizontal 
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.topTabsScroll}
-                >
+            <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.topTabsScroll}
+            >
+                {canAccessTab('dashboard') && (
                     <TouchableOpacity 
                         style={[
                             styles.topTab,
@@ -63,7 +76,9 @@ const Header = ({ activeTab, setActiveTab, adminProfile }) => {
                             Dashboard
                         </Text>
                     </TouchableOpacity>
-                    
+                )}
+
+                {canAccessTab('appointments') && (
                     <TouchableOpacity 
                         style={[
                             styles.topTab,
@@ -83,7 +98,9 @@ const Header = ({ activeTab, setActiveTab, adminProfile }) => {
                             Appointments
                         </Text>
                     </TouchableOpacity>
-                    
+                )}
+
+                {canAccessTab('concerns') && (
                     <TouchableOpacity 
                         style={[
                             styles.topTab,
@@ -92,7 +109,7 @@ const Header = ({ activeTab, setActiveTab, adminProfile }) => {
                         onPress={() => setActiveTab('concerns')}
                     >
                         <Ionicons 
-                            name="chatbubbles" 
+                            name="alert-circle" 
                             size={20} 
                             color={activeTab === 'concerns' ? "#003366" : "#666"} 
                         />
@@ -103,7 +120,9 @@ const Header = ({ activeTab, setActiveTab, adminProfile }) => {
                             Concerns
                         </Text>
                     </TouchableOpacity>
-                    
+                )}
+
+                {canAccessTab('projects') && (
                     <TouchableOpacity 
                         style={[
                             styles.topTab,
@@ -123,7 +142,9 @@ const Header = ({ activeTab, setActiveTab, adminProfile }) => {
                             Projects
                         </Text>
                     </TouchableOpacity>
-                    
+                )}
+
+                {canAccessTab('medical') && (
                     <TouchableOpacity 
                         style={[
                             styles.topTab,
@@ -143,7 +164,9 @@ const Header = ({ activeTab, setActiveTab, adminProfile }) => {
                             Medical
                         </Text>
                     </TouchableOpacity>
+                )}
 
+                {canAccessTab('updates') && (
                     <TouchableOpacity 
                         style={[
                             styles.topTab,
@@ -152,7 +175,7 @@ const Header = ({ activeTab, setActiveTab, adminProfile }) => {
                         onPress={() => setActiveTab('updates')}
                     >
                         <Ionicons 
-                            name="newspaper" 
+                            name="notifications" 
                             size={20} 
                             color={activeTab === 'updates' ? "#003366" : "#666"} 
                         />
@@ -163,28 +186,8 @@ const Header = ({ activeTab, setActiveTab, adminProfile }) => {
                             Updates
                         </Text>
                     </TouchableOpacity>
-
-                    <TouchableOpacity 
-                        style={[
-                            styles.topTab,
-                            activeTab === 'profile' && styles.topTabActive
-                        ]}
-                        onPress={() => setActiveTab('profile')}
-                    >
-                        <Ionicons 
-                            name="person" 
-                            size={20} 
-                            color={activeTab === 'profile' ? "#003366" : "#666"} 
-                        />
-                        <Text style={[
-                            styles.topTabText,
-                            activeTab === 'profile' && styles.topTabTextActive
-                        ]}>
-                            Profile
-                        </Text>
-                    </TouchableOpacity>
-                </ScrollView>
-            </View>
+                )}
+            </ScrollView>
         </View>
     );
 };
@@ -293,6 +296,12 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 10,
         fontWeight: 'bold',
+    },
+    loadingContainer: {
+        height: 100,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#FFF',
     },
 });
 

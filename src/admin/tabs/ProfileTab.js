@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { 
     View, 
     Text, 
@@ -20,10 +20,11 @@ import * as SecureStore from 'expo-secure-store';
 // Components
 import PinModal from './profile/components/PinModal';
 import AddAdminModal from './profile/components/AddAdminModal';
+import AdminPermissionsModal from './profile/components/AdminPermissionsModal';
 
 // Hooks
 import { useProfile } from './profile/hooks/useProfile';
-import { useAdminManagement } from './profile/hooks/useAdminManagement';
+import { useAdminManagement, AVAILABLE_TASKS } from './profile/hooks/useAdminManagement';
 import { usePinManagement } from './profile/hooks/usePinManagement';
 
 // Utils
@@ -49,11 +50,20 @@ const ProfileTab = () => {
     const {
         showAddAdminModal,
         setShowAddAdminModal,
+        showEditPermissionsModal,
+        setShowEditPermissionsModal,
+        selectedAdmin,
+        setSelectedAdmin,
         newAdminPhone,
         setNewAdminPhone,
         addingAdmin,
+        loadingAdmins,
+        adminList,
         handleAddAdmin,
-        resetAddAdminModal
+        handleUpdateAdminTasks,
+        resetAddAdminModal,
+        resetEditPermissionsModal,
+        fetchAdmins
     } = useAdminManagement(adminData.adminType);
 
     const {
@@ -71,6 +81,12 @@ const ProfileTab = () => {
         handleChangePin,
         resetPinModal
     } = usePinManagement();
+
+    useEffect(() => {
+        if (adminData.adminType === 'superadmin') {
+            fetchAdmins();
+        }
+    }, [adminData.adminType]);
 
     const handleLogout = async () => {
         Alert.alert(
@@ -302,6 +318,62 @@ const ProfileTab = () => {
                 </TouchableOpacity>
             </Animatable.View>
 
+            {adminData.adminType === 'superadmin' && (
+                <Animatable.View 
+                    animation="fadeInUp"
+                    duration={1000}
+                    style={styles.section}
+                >
+                    <Text style={styles.sectionTitle}>Admin Management</Text>
+                    
+                    <TouchableOpacity 
+                        style={styles.securityItem} 
+                        onPress={() => setShowAddAdminModal(true)}
+                    >
+                        <View style={styles.securityItemLeft}>
+                            <MaterialIcons name="person-add" size={24} color="#003366" />
+                            <Text style={styles.securityItemText}>Add New Admin</Text>
+                        </View>
+                        <Feather name="chevron-right" size={20} color="#ccc" />
+                    </TouchableOpacity>
+
+                    {loadingAdmins ? (
+                        <View style={styles.loadingContainer}>
+                            <ActivityIndicator size="large" color="#003366" />
+                        </View>
+                    ) : (
+                        adminList.map(admin => (
+                            <TouchableOpacity
+                                key={admin.id}
+                                style={styles.adminItem}
+                                onPress={() => {
+                                    setSelectedAdmin(admin);
+                                    setShowEditPermissionsModal(true);
+                                }}
+                            >
+                                <View style={styles.adminItemLeft}>
+                                    <MaterialIcons name="admin-panel-settings" size={24} color="#003366" />
+                                    <View style={styles.adminItemInfo}>
+                                        <Text style={styles.adminItemName}>{admin.name}</Text>
+                                        <Text style={styles.adminItemPhone}>{admin.phone}</Text>
+                                        <View style={styles.taskTags}>
+                                            {admin.tasks?.map(task => (
+                                                <View key={task} style={styles.taskTag}>
+                                                    <Text style={styles.taskTagText}>
+                                                        {AVAILABLE_TASKS[task]?.name || task}
+                                                    </Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    </View>
+                                </View>
+                                <Feather name="chevron-right" size={20} color="#ccc" />
+                            </TouchableOpacity>
+                        ))
+                    )}
+                </Animatable.View>
+            )}
+
             <Animatable.View 
                 animation="fadeInUp"
                 duration={1200}
@@ -375,6 +447,14 @@ const ProfileTab = () => {
                 setNewAdminPhone={setNewAdminPhone}
                 onAddAdmin={handleAddAdmin}
                 addingAdmin={addingAdmin}
+            />
+
+            <AdminPermissionsModal
+                visible={showEditPermissionsModal}
+                onClose={resetEditPermissionsModal}
+                admin={selectedAdmin}
+                onUpdateTasks={handleUpdateAdminTasks}
+                loading={addingAdmin}
             />
         </ScrollView>
     );
@@ -537,6 +617,54 @@ const styles = StyleSheet.create({
         color: "white",
         fontWeight: "600",
         fontSize: 14,
+    },
+    adminItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 15,
+        backgroundColor: '#FFF',
+        borderRadius: 8,
+        marginBottom: 8,
+        borderWidth: 1,
+        borderColor: '#EEE',
+    },
+    adminItemLeft: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    adminItemInfo: {
+        marginLeft: 12,
+        flex: 1,
+    },
+    adminItemName: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#333',
+        marginBottom: 2,
+    },
+    adminItemPhone: {
+        fontSize: 14,
+        color: '#666',
+        marginBottom: 4,
+    },
+    taskTags: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginTop: 4,
+    },
+    taskTag: {
+        backgroundColor: '#E3F2FD',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 4,
+        marginRight: 6,
+        marginBottom: 4,
+    },
+    taskTagText: {
+        fontSize: 12,
+        color: '#1976D2',
+        fontWeight: '500',
     },
 });
 

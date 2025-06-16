@@ -25,6 +25,7 @@ import { BarChart, PieChart } from 'react-native-chart-kit';
 import * as Animatable from 'react-native-animatable';
 import BackgroundFetch from "react-native-background-fetch";
 import * as SecureStore from 'expo-secure-store';
+import { useAdminNavigation } from './hooks/useAdminNavigation';
 
 // Import tab components
 import ProjectsTab from './tabs/ProjectsTab';
@@ -123,6 +124,8 @@ const AdminDashboard = () => {
         lastFetch: null,
         data: null
     });
+
+    const { canAccessTab } = useAdminNavigation();
 
     const fetchAdminProfile = useCallback(async () => {
         try {
@@ -556,25 +559,33 @@ const AdminDashboard = () => {
     );
 
     const renderContent = () => {
+        // If trying to access a restricted tab, redirect to dashboard
+        if (!canAccessTab(activeTab)) {
+            setActiveTab('dashboard');
+            return renderDashboard();
+        }
+
         switch (activeTab) {
             case 'projects':
-                return <ProjectsTab />;
+                return canAccessTab('projects') ? <ProjectsTab /> : null;
             case 'concerns':
-                return <ConcernsTab concerns={concerns} />;
+                return canAccessTab('concerns') ? <ConcernsTab concerns={concerns} /> : null;
             case 'appointments':
-                return <AppointmentsTab appointments={appointments} />;
+                return canAccessTab('appointments') ? <AppointmentsTab appointments={appointments} /> : null;
             case 'updates':
-                return <UpdatesTab />;
+                return canAccessTab('updates') ? <UpdatesTab /> : null;
             case 'medical':
-                return <MedicalApplicationTab />;
+                return canAccessTab('medical') ? <MedicalApplicationTab /> : null;
             case 'profile':
                 return <ProfileTab profile={adminProfile} onProfileUpdate={fetchAdminProfile} />;
             case 'stats':
-                return <StatsTab 
-                    chartData={chartData} 
-                    pieData={pieData} 
-                    stats={stats} 
-                />;
+                return canAccessTab('stats') ? (
+                    <StatsTab 
+                        chartData={chartData} 
+                        pieData={pieData} 
+                        stats={stats} 
+                    />
+                ) : null;
             case 'dashboard':
             default:
                 return renderDashboard();
