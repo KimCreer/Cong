@@ -11,6 +11,42 @@ Follow these steps to set up and run the project on your local machine:
   npm install -g expo-cli
   ```
 
+# Expo Build Setup
+
+To create production builds for Android , use Expo Application Services (EAS):
+
+1. **Install EAS CLI** (if you haven't already):
+   ```bash
+   npm install -g eas-cli
+   ```
+2. **Log in to Expo**:
+   ```bash
+   eas login
+   ```
+   - If you need to switch accounts, first log out:
+     ```bash
+     eas logout
+     ```
+   - Then log in with the new Expo account:
+     ```bash
+     eas login
+     ```
+   - You can check the current account with:
+     ```bash
+     eas whoami
+     ```
+   > **Note:** You can only be logged in to one Expo account at a time per terminal session.
+3. **Configure your project** (if not already):
+   ```bash
+   eas build:configure
+   ```
+4. **Build for Android**:
+   ```bash
+   eas build -p android
+   ```
+
+For more details, see the [Expo EAS Build documentation](https://docs.expo.dev/build/introduction/).
+
 ## Installation & Running
 1. **Clone the repository** (if you haven't already):
    ```bash
